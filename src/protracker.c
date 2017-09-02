@@ -58,7 +58,7 @@ static void process_sample_header(protracker_sample_t* sample, const uint8_t* in
     char sample_name[sizeof(sample->name)+1];
     memset(sample_name, 0, sizeof(sample_name));
     memcpy(sample_name, sample->name, sizeof(sample->name));
-    debug(" #%02u - length: $%04X, repeat offset: $%04X, repeat length: $%04X, name: '%s'\n",
+    debug(" #%02X - length: $%04X, repeat offset: $%04X, repeat length: $%04X, name: '%s'\n",
         index,
         sample->sample_length,
         sample->repeat_offset,
@@ -137,10 +137,10 @@ protracker_t* protracker_load(const char* filename)
         const uint8_t* curr = raw;
         const uint8_t* max = curr + size;
 
+        // Module header
+
         memcpy(&module.header, curr, sizeof(protracker_header_t));
         curr += sizeof(protracker_header_t);
-
-        // Module header
 
         char mod_name[sizeof(module.header.name)+1];
         memset(mod_name, 0, sizeof(mod_name));
@@ -208,12 +208,12 @@ protracker_t* protracker_load(const char* filename)
 
             memcpy(&module.patterns[i], curr, sizeof(protracker_pattern_t));
 
-            debug("Pattern #%lu:\n", i);
+            debug("Pattern #%02lX:\n", i);
             for(size_t j = 0; j < PROTRACKER_PATTERN_ROWS; ++j)
             {
                 const protracker_position_t* pos = &(module.patterns[i].rows[j]);
 
-                debug(" #%02lx:", j);
+                debug(" #%02lX:", j);
 
                 for(size_t k = 0; k < PROTRACKER_NUM_CHANNELS; ++k)
                 {
