@@ -69,7 +69,7 @@ static void process_sample_header(protracker_sample_t* sample, const uint8_t* in
 
 static const uint8_t* process_sample_data(protracker_t* module, const uint8_t* in, const uint8_t* max)
 {
-    for (size_t i = 0; i < PROTRACKER_MAX_SAMPLES; ++i)
+    for (size_t i = 0; i < PT_MAX_SAMPLES; ++i)
     {
         const protracker_sample_t* sample = &(module->sample_headers[i]);
 
@@ -150,7 +150,7 @@ protracker_t* protracker_load(const char* filename)
         // Sample headers
 
         debug("Samples:\n");
-        for (size_t i = 0; i < 31; ++i)
+        for (size_t i = 0; i < PT_MAX_SAMPLES; ++i)
         {
             if (curr > max)
             {
@@ -192,7 +192,7 @@ protracker_t* protracker_load(const char* filename)
         // Patterns
 
         uint8_t max_pattern = 0;
-        for (size_t i = 0; i < PROTRACKER_MAX_PATTERNS; ++i)
+        for (size_t i = 0; i < PT_MAX_PATTERNS; ++i)
         {
             if (module.song.positions[i] > max_pattern)
                 max_pattern = module.song.positions[i];
@@ -209,13 +209,13 @@ protracker_t* protracker_load(const char* filename)
             memcpy(&module.patterns[i], curr, sizeof(protracker_pattern_t));
 
             debug("Pattern #%02lX:\n", i);
-            for(size_t j = 0; j < PROTRACKER_PATTERN_ROWS; ++j)
+            for(size_t j = 0; j < PT_PATTERN_ROWS; ++j)
             {
                 const protracker_position_t* pos = &(module.patterns[i].rows[j]);
 
                 debug(" #%02lX:", j);
 
-                for(size_t k = 0; k < PROTRACKER_NUM_CHANNELS; ++k)
+                for(size_t k = 0; k < PT_NUM_CHANNELS; ++k)
                 {
                     const protracker_note_t* note = &(pos->notes[k]);
 
@@ -252,16 +252,15 @@ protracker_t* protracker_load(const char* filename)
         }
         *output = module;
 
-
         free(raw);
 
-        return 0;
+        return output;
     } while (0);
 
     fprintf(stderr, "Failed to load Protracker module.\n");
 
     free(raw);
-    for (size_t i = 0; i < PROTRACKER_MAX_SAMPLES; ++i)
+    for (size_t i = 0; i < PT_MAX_SAMPLES; ++i)
     {
         free(module.sample_data[i]);
     }
@@ -271,7 +270,7 @@ protracker_t* protracker_load(const char* filename)
 
 void protracker_free(protracker_t* module)
 {
-    for (size_t i = 0; i < PROTRACKER_MAX_SAMPLES; ++i)
+    for (size_t i = 0; i < PT_MAX_SAMPLES; ++i)
     {
         free(module->sample_data[i]);
     }
