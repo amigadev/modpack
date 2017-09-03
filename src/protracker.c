@@ -183,7 +183,7 @@ protracker_t* protracker_load(const char* filename)
         }
         debug("\n");
 
-        if (memcmp("M.K.", curr, 4) && memcmp("M!K!", curr, 4) && memcmp("FLT4", curr, 4))
+        if (memcmp("M.K.", curr, 4) && memcmp("M!K!", curr, 4) && memcmp("FLT4", curr, 4) && memcmp("4CHN", curr, 4))
         {
             fprintf(stderr, "Could not find magic word, is this a ProTracker module?\n");
             break;
