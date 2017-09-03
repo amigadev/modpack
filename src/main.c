@@ -18,6 +18,10 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    protracker_remove_unused_patterns(module);
+
+    protracker_save(module, "test.mod");
+
     buffer_t buffer;
     buffer_init(&buffer, 1);
 
