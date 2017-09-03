@@ -392,33 +392,28 @@ void protracker_remove_unused_patterns(protracker_t* module)
     size_t used_patterns = protracker_get_pattern_count(module, false);
     size_t total_patterns = protracker_get_pattern_count(module, true);
 
-    for (size_t i = 0, n = used_patterns; i < n; ++i)
-    {
-        fprintf(stderr, "%lu %lu %lu\n", i, used_patterns, total_patterns);
+    debug("Removing unused patterns...\n");
 
+    for (size_t i = 0; i < used_patterns; ++i)
+    {
         bool used = false;
         for (size_t j = 0, m = module->song.length; j < m; ++j)
         {
-            fprintf(stderr, "%s%u",j > 0 ? "," : "", module->song.positions[j]);
             if (module->song.positions[j] == i)
             {
-                fprintf(stderr,"!");
                 used = true;
                 break;
             }
         }
 
-        fprintf(stderr,"\n");
         if (used)
         {
             continue;
         }
 
-        debug("Pattern #%u not used, removing...\n", i);
+        debug(" #%u - not used, removing...\n", i);
 
         // move pattern data up
-
-        fprintf(stderr,"MOVE: %lu %lu %ld\n", total_patterns, i+1, (total_patterns-(i+1)));
 
         if (i < total_patterns)
         {
