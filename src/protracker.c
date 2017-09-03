@@ -262,12 +262,9 @@ protracker_t* protracker_load(const char* filename)
     return NULL;
 }
 
-int protracker_save(const protracker_t* module, const char* filename)
+int protracker_convert(buffer_t* buffer, const protracker_t* module)
 {
-    buffer_t buffer;
-    buffer_init(&buffer, 1);
-
-    buffer_add(&buffer, &(module->header), sizeof(protracker_header_t));
+    buffer_add(buffer, &(module->header), sizeof(protracker_header_t));
     for (size_t i = 0; i < PT_MAX_SAMPLES; ++i)
     {
         protracker_sample_t sample = module->sample_headers[i];
@@ -276,16 +273,16 @@ int protracker_save(const protracker_t* module, const char* filename)
         sample.repeat_offset = htons(sample.repeat_offset);
         sample.repeat_length = htons(sample.repeat_length);
 
-        buffer_add(&buffer, &sample, sizeof(protracker_sample_t));
+        buffer_add(buffer, &sample, sizeof(protracker_sample_t));
     }
 
-    buffer_add(&buffer, &(module->song), sizeof(protracker_song_t));
-    buffer_add(&buffer, "M.K.", 4);
+    buffer_add(buffer, &(module->song), sizeof(protracker_song_t));
+    buffer_add(buffer, "M.K.", 4);
 
     for (size_t i = 0, n = protracker_get_pattern_count(module, true); i < n; ++i)
     {
         const protracker_pattern_t* pattern = &(module->patterns[i]);
-        buffer_add(&buffer, pattern, sizeof(protracker_pattern_t));
+        buffer_add(buffer, pattern, sizeof(protracker_pattern_t));
     }
 
     for (size_t i = 0; i < PT_MAX_SAMPLES; ++i)
@@ -297,39 +294,10 @@ int protracker_save(const protracker_t* module, const char* filename)
             continue;
         }
 
-        buffer_add(&buffer, module->sample_data[i], sample->length * 2);
+        buffer_add(buffer, module->sample_data[i], sample->length * 2);
     }
 
-    int ret = -1;
-    FILE* fp = NULL;
-    do
-    {
-        fp = fopen(filename, "wb");
-        if (!fp)
-        {
-            fprintf(stderr, "Failed to open '%s' for writing.\n", filename);
-            break;
-        }
-
-        size_t size = buffer_count(&buffer);
-        if (fwrite(buffer_get(&buffer, 0), 1, size, fp) != size)
-        {
-            fprintf(stderr, "Failed to write %lu bytes.\n", size);
-            break;
-        }
-
-        ret = 0;
-    }
-    while (0);
-
-    if (fp)
-    {
-        fclose(fp);
-    }
-
-    buffer_release(&buffer);
-
-    return ret;
+    return 0;
 }
 
 void protracker_free(protracker_t* module)

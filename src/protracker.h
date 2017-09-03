@@ -1,5 +1,7 @@
 #pragma once
 
+#include "buffer.h"
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -99,7 +101,7 @@ typedef struct __attribute__((__packed__))
 } protracker_t;
 
 protracker_t* protracker_load(const char* filename);
-int protracker_save(const protracker_t* module, const char* filename);
+int protracker_convert(buffer_t* buffer, const protracker_t* module);
 void protracker_free(protracker_t* module);
 
 uint8_t protracker_get_sample(const protracker_note_t* note);
