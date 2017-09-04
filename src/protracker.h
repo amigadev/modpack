@@ -82,11 +82,11 @@ typedef struct
 typedef struct __attribute__((__packed__))
 {
     protracker_note_t notes[PT_NUM_CHANNELS];
-} protracker_position_t;
+} protracker_pattern_row_t;
 
 typedef struct __attribute__((__packed__))
 {
-    protracker_position_t rows[PT_PATTERN_ROWS];
+    protracker_pattern_row_t rows[PT_PATTERN_ROWS];
 } protracker_pattern_t;
 
 typedef struct __attribute__((__packed__))
@@ -108,6 +108,8 @@ uint8_t protracker_get_sample(const protracker_note_t* note);
 uint16_t protracker_get_period(const protracker_note_t* note);
 protracker_effect_t protracker_get_effect(const protracker_note_t* note);
 
+void protracker_set_sample(protracker_note_t* note, uint8_t sample);
+
 /**
  *
  * module - ProTracker module
@@ -125,3 +127,25 @@ size_t protracker_get_pattern_count(const protracker_t* module, bool total);
  *
 **/
 void protracker_remove_unused_patterns(protracker_t* module);
+
+/**
+ *
+ * Remove samples from module that are not by any pattern
+ *
+**/
+void protracker_remove_unused_samples(protracker_t* module);
+
+/**
+ *
+ * Pattern iterator to simplify transforming protracker pattern data
+ *
+**/
+void protracker_transform_notes(protracker_t* module, void (*transform)(protracker_note_t*, uint8_t channel, void* data), void* data);
+
+/**
+ *
+ * Pattern iterator to simplify scanning protracker pattern data
+ *
+**/
+void protracker_scan_notes(const protracker_t* module, void (*scan)(const protracker_note_t*, uint8_t channel, void* data), void* data);
+

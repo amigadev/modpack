@@ -177,11 +177,23 @@ protracker_t* protracker_load(const char* filename)
         debug("Song:\n Positions: %u (%u)\n", module.song.length, module.song.restart_position);
 
         debug(" Patterns:");
+        bool positions_valid = true;
         for (size_t i = 0; i < module.song.length; ++i)
         {
             debug(" %u", module.song.positions[i]);
+
+            if (module.song.positions[i] > 127)
+            {
+                fprintf(stderr, "Invalid song pattern at position %lu", i+1);
+                positions_valid = false;
+                break;
+            }
         }
         debug("\n");
+        if (!positions_valid)
+        {
+            break;
+        }
 
         if (memcmp("M.K.", curr, 4) && memcmp("M!K!", curr, 4) && memcmp("FLT4", curr, 4) && memcmp("4CHN", curr, 4))
         {
@@ -205,7 +217,7 @@ protracker_t* protracker_load(const char* filename)
             debug("Pattern #%lu:\n", i);
             for(size_t j = 0; j < PT_PATTERN_ROWS; ++j)
             {
-                const protracker_position_t* pos = &(module.patterns[i].rows[j]);
+                const protracker_pattern_row_t* pos = &(module.patterns[i].rows[j]);
 
                 debug(" #%02lu:", j);
 
@@ -331,6 +343,12 @@ protracker_effect_t protracker_get_effect(const protracker_note_t* note)
     return effect;
 }
 
+void protracker_set_sample(protracker_note_t* note, uint8_t sample)
+{
+    note->data[0] = (note->data[0] & 0x0f) | (sample & 0xf0);
+    note->data[2] = (note->data[2] & 0x0f) | ((sample & 0x0f) << 4);
+}
+
 size_t protracker_get_pattern_count(const protracker_t* module, bool total)
 {
     uint8_t max_pattern = 0;
@@ -400,5 +418,112 @@ void protracker_remove_unused_patterns(protracker_t* module)
 
         --used_patterns;
         --total_patterns;
+    }
+}
+
+typedef struct
+{
+    uint8_t sample;
+    bool found;
+} sample_index_search;
+
+static void match_sample_index(const protracker_note_t* note, uint8_t channel, void* data)
+{
+    sample_index_search* internal = (sample_index_search*)data;
+    if (internal->sample == protracker_get_sample(note))
+    {
+        internal->found = true;
+    }
+}
+
+typedef struct
+{
+    uint8_t sample;
+} sample_index_filter;
+
+static void filter_sample_index(protracker_note_t* note, uint8_t channel, void* data)
+{
+    sample_index_filter* internal = (sample_index_filter*)data;
+    uint8_t sample = protracker_get_sample(note);
+
+    if (!sample || !protracker_get_period(note))
+    {
+        return;
+    }
+
+    if (sample < internal->sample)
+    {
+        return;
+    }
+
+
+    protracker_set_sample(note, sample-1);
+
+    fprintf(stderr, "%u -> %u (%u)\n", sample, sample-1, protracker_get_sample(note));
+}
+
+void protracker_remove_unused_samples(protracker_t* module)
+{
+    debug("Removing unused samples...\n");
+
+    for (size_t i = 0, n = PT_MAX_SAMPLES; i < n; ++i)
+    {
+        uint8_t sample = (uint8_t)i+1;
+        sample_index_search search_data = { sample, false };
+
+        protracker_scan_notes(module, match_sample_index, &search_data);
+
+        if (search_data.found)
+        {
+            continue;
+        }
+
+        debug(" #%lu - not used, removing...\n", (i+1));
+
+        free(module->sample_data[i]);
+        module->sample_data[i] = NULL;
+        module->sample_headers[i].length = 0;
+        module->sample_headers[i].repeat_offset = 0;
+        module->sample_headers[i].repeat_offset = 0;
+    }
+}
+
+void protracker_transform_notes(protracker_t* module, void (*transform)(protracker_note_t*, uint8_t channel, void* data), void* data)
+{
+    for (size_t i = 0, n = module->song.length; i < n; ++i)
+    {
+        protracker_pattern_t* pattern = &(module->patterns[module->song.positions[i]]);
+
+        for (size_t j = 0; j < PT_PATTERN_ROWS; ++j)
+        {
+            protracker_pattern_row_t* row = &(pattern->rows[j]);
+
+            for (size_t k = 0; k < PT_NUM_CHANNELS; ++k)
+            {
+                protracker_note_t* note = &(row->notes[k]);
+
+                transform(note, k, data);
+            }
+        }
+    }
+}
+
+void protracker_scan_notes(const protracker_t* module, void (*scan)(const protracker_note_t*, uint8_t channel, void* data), void* data)
+{
+    for (size_t i = 0, n = module->song.length; i < n; ++i)
+    {
+        const protracker_pattern_t* pattern = &(module->patterns[module->song.positions[i]]);
+
+        for (size_t j = 0; j < PT_PATTERN_ROWS; ++j)
+        {
+            const protracker_pattern_row_t* row = &(pattern->rows[j]);
+
+            for (size_t k = 0; k < PT_NUM_CHANNELS; ++k)
+            {
+                const protracker_note_t* note = &(row->notes[k]);
+
+                scan(note, k, data);
+            }
+        }
     }
 }

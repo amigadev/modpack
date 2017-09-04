@@ -20,6 +20,7 @@ int main(int argc, char* argv[])
     }
 
     protracker_remove_unused_patterns(module);
+    protracker_remove_unused_samples(module);
 
     buffer_t buffer;
     buffer_init(&buffer, 1);
