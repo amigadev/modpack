@@ -1,15 +1,15 @@
 CCFLAGS=
 LDFLAGS=
 
-all: out p61conv
+all: out modpack
 
 out:
 	mkdir out
 
 clean:
-	rm -rf out p61conv
+	rm -rf out modpack
 
-p61conv: out/main.o out/protracker.o out/debug.o out/buffer.o out/converter.o out/player61a.o
+modpack: out/main.o out/protracker.o out/debug.o out/buffer.o out/converter.o out/player61a.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 out/%.o: src/%.c
