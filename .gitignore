@@ -1,4 +1,7 @@
 p61conv
 out
+reference
 *.swp
+*.mod
+mod.*
 .idea
