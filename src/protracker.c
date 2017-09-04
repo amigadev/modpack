@@ -436,32 +436,6 @@ static void match_sample_index(const protracker_note_t* note, uint8_t channel, v
     }
 }
 
-typedef struct
-{
-    uint8_t sample;
-} sample_index_filter;
-
-static void filter_sample_index(protracker_note_t* note, uint8_t channel, void* data)
-{
-    sample_index_filter* internal = (sample_index_filter*)data;
-    uint8_t sample = protracker_get_sample(note);
-
-    if (!sample || !protracker_get_period(note))
-    {
-        return;
-    }
-
-    if (sample < internal->sample)
-    {
-        return;
-    }
-
-
-    protracker_set_sample(note, sample-1);
-
-    fprintf(stderr, "%u -> %u (%u)\n", sample, sample-1, protracker_get_sample(note));
-}
-
 void protracker_remove_unused_samples(protracker_t* module)
 {
     debug("Removing unused samples...\n");
@@ -485,6 +459,76 @@ void protracker_remove_unused_samples(protracker_t* module)
         module->sample_headers[i].length = 0;
         module->sample_headers[i].repeat_offset = 0;
         module->sample_headers[i].repeat_offset = 0;
+    }
+}
+
+typedef struct
+{
+    uint8_t source;
+    uint8_t dest;
+} compact_sample_filter;
+
+static void compact_sample_index(protracker_note_t* note, uint8_t channel, void* data)
+{
+    compact_sample_filter* internal = (compact_sample_filter*)data;
+    uint8_t sample = protracker_get_sample(note);
+
+    if (sample == internal->source)
+    {
+        protracker_set_sample(note, internal->dest);
+    }
+}
+
+void protracker_compact_sample_indexes(protracker_t* module)
+{
+    debug("Compacting sample indexes...\n");
+
+    bool used[PT_MAX_SAMPLES] = { 0 };
+
+    for (size_t i = 0, n = PT_MAX_SAMPLES; i < n; ++i)
+    {
+        uint8_t sample = (uint8_t)i+1;
+        sample_index_search search_data = { sample, false };
+
+        protracker_scan_notes(module, match_sample_index, &search_data);
+
+        if (search_data.found)
+        {
+            used[i] = true;
+            continue;
+        }
+    }
+
+    size_t source_index = 0;
+    for (size_t i = 0; i < PT_MAX_SAMPLES; ++i, ++source_index)
+    {
+        if (!used[i])
+        {
+            debug(" #%lu - compacting index.\n", (i+1));
+            ++ source_index;
+        }
+
+        compact_sample_filter compact_data = {
+            (uint8_t)(source_index+1),
+            (uint8_t)(i+1)
+        };
+
+        protracker_transform_notes(module, compact_sample_index, &compact_data);
+
+        if (i != source_index)
+        {
+            if (source_index < PT_MAX_SAMPLES)
+            {
+                module->sample_headers[i] = module->sample_headers[source_index];
+                module->sample_data[i] = module->sample_data[source_index];
+            }
+            else
+            {
+                memset(&(module->sample_headers[i]), 0, sizeof(protracker_sample_t));
+                module->sample_data[i] = NULL;
+            }
+
+        }
     }
 }
 

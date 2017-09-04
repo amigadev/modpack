@@ -130,10 +130,17 @@ void protracker_remove_unused_patterns(protracker_t* module);
 
 /**
  *
- * Remove samples from module that are not by any pattern
+ * Remove samples from module that are not by any pattern (sample index is preserved)
  *
 **/
 void protracker_remove_unused_samples(protracker_t* module);
+
+/**
+ *
+ * Compact sample indexes to remove empty space in sample list
+ *
+**/
+void protracker_compact_sample_indexes(protracker_t* module);
 
 /**
  *

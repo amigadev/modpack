@@ -21,6 +21,7 @@ int main(int argc, char* argv[])
 
     protracker_remove_unused_patterns(module);
     protracker_remove_unused_samples(module);
+    protracker_compact_sample_indexes(module);
 
     buffer_t buffer;
     buffer_init(&buffer, 1);
