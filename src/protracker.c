@@ -336,7 +336,7 @@ void protracker_free(protracker_t* module)
 
 uint8_t protracker_get_sample(const protracker_note_t* note)
 {
-    return (note->data[0] & 0xf0) | ((note->data[2] & 0xf0) >> 4);
+    return (note->data[0] & 0x10) | ((note->data[2] & 0xf0) >> 4);
 
 }
 
@@ -358,7 +358,7 @@ protracker_effect_t protracker_get_effect(const protracker_note_t* note)
 
 void protracker_set_sample(protracker_note_t* note, uint8_t sample)
 {
-    note->data[0] = (note->data[0] & 0x0f) | (sample & 0xf0);
+    note->data[0] = (note->data[0] & 0x0f) | (sample & 0x10);
     note->data[2] = (note->data[2] & 0x0f) | ((sample & 0x0f) << 4);
 }
 
