@@ -19,8 +19,14 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    // pre-process patterns
+
     protracker_remove_unused_patterns(module);
+
+    // pre-process samples
+
     protracker_remove_unused_samples(module);
+    protracker_remove_identical_samples(module);
     protracker_compact_sample_indexes(module);
 
     buffer_t buffer;

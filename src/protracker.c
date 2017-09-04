@@ -449,7 +449,7 @@ void protracker_remove_unused_samples(protracker_t* module)
 {
     debug("Removing unused samples...\n");
 
-    for (size_t i = 0, n = PT_NUM_SAMPLES; i < n; ++i)
+    for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
         uint8_t sample = (uint8_t)i+1;
         sample_index_data search_data = { sample, false };
@@ -472,7 +472,72 @@ void protracker_remove_unused_samples(protracker_t* module)
         module->sample_data[i] = NULL;
         module->sample_headers[i].length = 0;
         module->sample_headers[i].repeat_offset = 0;
-        module->sample_headers[i].repeat_offset = 0;
+        module->sample_headers[i].repeat_length = 0;
+    }
+}
+
+typedef struct
+{
+    uint8_t src, dest;
+} sample_replace_data;
+
+void sample_replace_filter(protracker_note_t* note, uint8_t channel, void* data)
+{
+    sample_replace_data* internal = (sample_replace_data*)data;
+    uint8_t sample = protracker_get_sample(note);
+    if (sample == internal->src)
+    {
+        protracker_set_sample(note, internal->dest);
+    }
+}
+
+void protracker_remove_identical_samples(protracker_t* module)
+{
+    debug("Removing identical samples...\n");
+
+    for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
+    {
+        const protracker_sample_t* src = &(module->sample_headers[i]);
+
+        if (!src->length)
+        {
+            continue;
+        }
+
+        for (size_t j = i + 1; j < PT_NUM_SAMPLES; ++j)
+        {
+            protracker_sample_t* dest = &(module->sample_headers[j]);
+
+            if (
+                (src->length != dest->length) ||
+                (src->finetone != dest->finetone) ||
+                (src->volume != dest->volume) ||
+                (src->repeat_offset != dest->repeat_offset) ||
+                (src->repeat_length != dest->repeat_length)
+            )
+            {
+                continue;
+            }
+
+            if (memcmp(module->sample_data[i], module->sample_data[j], src->length * 2))
+            {
+                continue;
+            }
+
+            debug(" #%lu equals #%lu, merging...\n", (i+1), (j+1));
+
+            sample_replace_data replace_data = {
+                (j+1), (i+1)
+            };
+
+            protracker_transform_notes(module, sample_replace_filter, &replace_data);
+
+            free(module->sample_data[j]);
+            module->sample_data[j] = NULL;
+            module->sample_headers[j].length = 0;
+            module->sample_headers[j].repeat_offset = 0;
+            module->sample_headers[j].repeat_length = 0;
+        }
     }
 }
 

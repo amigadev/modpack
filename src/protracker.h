@@ -136,6 +136,13 @@ void protracker_remove_unused_samples(protracker_t* module);
 
 /**
  *
+ * Remove samples that identical
+ *
+**/
+void protracker_remove_identical_samples(protracker_t* module);
+
+/**
+ *
  * Compact sample indexes to remove empty space in sample list
  *
 **/
