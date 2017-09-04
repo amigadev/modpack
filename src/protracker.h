@@ -6,11 +6,10 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#define PT_MAX_SAMPLES  (31)
-#define PT_MAX_PATTERNS (128)
-#define PT_MAX_POSITIONS (128)
-#define PT_PATTERN_ROWS (64)
+#define PT_NUM_SAMPLES  (31)
+#define PT_NUM_POSITIONS (128)
 #define PT_NUM_CHANNELS (4)
+#define PT_PATTERN_ROWS (64)
 
 #define PT_CMD_ARPEGGIO         (0)
 #define PT_CMD_SLIDE_UP         (1)
@@ -64,7 +63,7 @@ typedef struct __attribute__((__packed__))
 {
     uint8_t length;
     uint8_t restart_position;
-    uint8_t positions[PT_MAX_POSITIONS];
+    uint8_t positions[PT_NUM_POSITIONS];
 } protracker_song_t;
 
 typedef struct __attribute__((__packed__))
@@ -92,12 +91,14 @@ typedef struct __attribute__((__packed__))
 typedef struct __attribute__((__packed__))
 {
     protracker_header_t header;
-    protracker_sample_t sample_headers[PT_MAX_SAMPLES];
 
     protracker_song_t song;
 
-    protracker_pattern_t patterns[PT_MAX_PATTERNS];
-    uint8_t* sample_data[PT_MAX_SAMPLES];
+    protracker_pattern_t* patterns;
+    size_t num_patterns;
+
+    protracker_sample_t sample_headers[PT_NUM_SAMPLES];
+    uint8_t* sample_data[PT_NUM_SAMPLES];
 } protracker_t;
 
 protracker_t* protracker_load(const char* filename);
@@ -113,13 +114,11 @@ void protracker_set_sample(protracker_note_t* note, uint8_t sample);
 /**
  *
  * module - ProTracker module
- * total - if true: scan the entire pattern table
- *         if false: scan the played section of the pattern table
  *
- * returns number of patterns
+ * returns number of patterns used in song
  *
 **/
-size_t protracker_get_pattern_count(const protracker_t* module, bool total);
+size_t protracker_get_pattern_count(const protracker_t* module);
 
 /**
  *
