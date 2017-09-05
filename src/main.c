@@ -1,6 +1,7 @@
 #include "protracker.h"
 #include "buffer.h"
 #include "converter.h"
+#include "log.h"
 
 #include <stdio.h>
 
@@ -8,14 +9,14 @@ int main(int argc, char* argv[])
 {
     if (argc < 2)
     {
-        fprintf(stderr, "No file specified.\n");
+        log_msg(LOG_INFO, "No file specified.\n");
         return 1;
     }
 
     protracker_t* module = protracker_load(argv[1]);
     if (!module)
     {
-        fprintf(stderr, "Could not load module, aborting...\n");
+        log_msg(LOG_INFO, "Could not load module, aborting...\n");
         return 1;
     }
 
@@ -41,27 +42,27 @@ int main(int argc, char* argv[])
     {
         if (convert(&buffer, module, CONVERT_FORMAT_PROTRACKER))
         {
-            fprintf(stderr, "Conversion failed.\n");
+            log_msg(LOG_INFO, "Conversion failed.\n");
             break;
         }
 
-        fprintf(stderr, "Writing result to '%s'...", filename);
+        log_msg(LOG_INFO, "Writing result to '%s'...", filename);
 
         fp = fopen(filename, "wb");
         if (!fp)
         {
-            fprintf(stderr, "failed to open '%s' for writing.\n", filename);
+            log_msg(LOG_INFO, "failed to open '%s' for writing.\n", filename);
             break;
         }
 
         size_t size = buffer_count(&buffer);
         if (fwrite(buffer_get(&buffer, 0), 1, size, fp) != size)
         {
-            fprintf(stderr, "failed to write %lu bytes.\n", size);
+            log_msg(LOG_INFO, "failed to write %lu bytes.\n", size);
             break;
         }
 
-        fprintf(stderr, "done.\n");
+        log_msg(LOG_INFO, "done.\n");
         ret = 0;
     }
     while (0);

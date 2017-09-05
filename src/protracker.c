@@ -1,6 +1,6 @@
 #include "protracker.h"
 #include "buffer.h"
-#include "debug.h"
+#include "log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,7 +59,7 @@ static void process_sample_header(protracker_sample_t* sample, const uint8_t* in
     char sample_name[sizeof(sample->name)+1];
     memset(sample_name, 0, sizeof(sample_name));
     memcpy(sample_name, sample->name, sizeof(sample->name));
-    debug(" #%02u - length: $%04X, repeat offset: $%04X, repeat length: $%04X, name: '%s'\n",
+    log_msg(LOG_TRACE, " #%02u - length: $%04X, repeat offset: $%04X, repeat length: $%04X, name: '%s'\n",
         index+1,
         sample->length,
         sample->repeat_offset,
@@ -77,7 +77,7 @@ static const uint8_t* process_sample_data(protracker_t* module, const uint8_t* i
 
         if (in > max)
         {
-            fprintf(stderr, "Premature end of data before sample #%lu.\n", (i+1));
+            log_msg(LOG_ERROR, "Premature end of data before sample #%lu.\n", (i+1));
             break;
         }
 
@@ -96,7 +96,7 @@ static const uint8_t* process_sample_data(protracker_t* module, const uint8_t* i
 
         memcpy(data, in, bytes);
 
-        debug(" #%lu - %u bytes\n", i+1, bytes);
+        log_msg(LOG_TRACE, " #%lu - %u bytes\n", i+1, bytes);
 
         in += bytes;
     }
@@ -106,10 +106,12 @@ static const uint8_t* process_sample_data(protracker_t* module, const uint8_t* i
 
 protracker_t* protracker_load(const char* filename)
 {
+    log_msg(LOG_INFO, "Loading Protracker module '%s'\n", filename);
+
     FILE* fp = fopen(filename, "rb");
     if (!fp)
     {
-        fprintf(stderr, "Failed top open file '%s'\n", filename);
+        log_msg(LOG_INFO, "Failed top open file '%s'\n", filename);
         return NULL;
     }
 
@@ -126,13 +128,13 @@ protracker_t* protracker_load(const char* filename)
         raw = malloc(size);
         if (!raw)
         {
-            fprintf(stderr, "Failed to allocate %lu bytes\n", size);
+            log_msg(LOG_ERROR, "Failed to allocate %lu bytes\n", size);
             break;
         }
 
         if (fread(raw, 1, size, fp) != size)
         {
-            fprintf(stderr, "Failed to read %lu bytes\n", size);
+            log_msg(LOG_ERROR, "Failed to read %lu bytes\n", size);
             break;
         }
 
@@ -147,16 +149,16 @@ protracker_t* protracker_load(const char* filename)
         char mod_name[sizeof(module.header.name)+1];
         memset(mod_name, 0, sizeof(mod_name));
         memcpy(mod_name, module.header.name, sizeof(module.header.name));
-        debug("Header:\n Name: '%s'\n", mod_name);
+        log_msg(LOG_TRACE, "Header:\n Name: '%s'\n", mod_name);
 
         // Sample headers
 
-        debug("Samples:\n");
+        log_msg(LOG_TRACE, "Samples:\n");
         for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
         {
             if (curr > max)
             {
-                fprintf(stderr, "Premature end of data before sample %lu.\n", i);
+                log_msg(LOG_ERROR, "Premature end of data before sample %lu.\n", i);
                 break;
             }
 
@@ -166,7 +168,7 @@ protracker_t* protracker_load(const char* filename)
 
         if (curr > max)
         {
-            fprintf(stderr, "Premature end of data before song data.\n");
+            log_msg(LOG_ERROR, "Premature end of data before song data.\n");
             break;
         }
 
@@ -175,18 +177,18 @@ protracker_t* protracker_load(const char* filename)
         memcpy(&module.song, curr, sizeof(protracker_song_t));
         curr += sizeof(protracker_song_t);
 
-        debug("Song:\n Positions: %u (%u)\n", module.song.length, module.song.restart_position);
+        log_msg(LOG_TRACE, "Song:\n Positions: %u (%u)\n", module.song.length, module.song.restart_position);
 
-        debug(" Patterns:");
+        log_msg(LOG_TRACE, " Patterns:");
         bool positions_valid = true;
         uint8_t max_pattern = 0;
         for (size_t i = 0; i < PT_NUM_POSITIONS; ++i)
         {
             uint8_t pattern_index = module.song.positions[i];
             max_pattern = max_pattern < pattern_index ? pattern_index : max_pattern;
-            debug(" %u", pattern_index);
+            log_msg(LOG_TRACE, " %u", pattern_index);
         }
-        debug("\n");
+        log_msg(LOG_TRACE, "\n");
         if (!positions_valid)
         {
             break;
@@ -194,7 +196,7 @@ protracker_t* protracker_load(const char* filename)
 
         if (memcmp("M.K.", curr, 4) && memcmp("M!K!", curr, 4) && memcmp("FLT4", curr, 4) && memcmp("4CHN", curr, 4))
         {
-            fprintf(stderr, "Could not find magic word, is this a ProTracker module?\n");
+            log_msg(LOG_ERROR, "Could not find magic word, is this a ProTracker module?\n");
             break;
         }
         curr += 4;
@@ -208,18 +210,18 @@ protracker_t* protracker_load(const char* filename)
         {
             if (curr > max)
             {
-                fprintf(stderr, "Premature end of data before pattern %lu.\n", i);
+                log_msg(LOG_ERROR, "Premature end of data before pattern %lu.\n", i);
                 break;
             }
 
             memcpy(&module.patterns[i], curr, sizeof(protracker_pattern_t));
 
-            debug("Pattern #%lu:\n", i);
+            log_msg(LOG_TRACE, "Pattern #%lu:\n", i);
             for(size_t j = 0; j < PT_PATTERN_ROWS; ++j)
             {
                 const protracker_pattern_row_t* pos = &(module.patterns[i].rows[j]);
 
-                debug(" #%02lu:", j);
+                log_msg(LOG_TRACE, " #%02lu:", j);
 
                 for(size_t k = 0; k < PT_NUM_CHANNELS; ++k)
                 {
@@ -230,30 +232,40 @@ protracker_t* protracker_load(const char* filename)
 
                     build_note(note, note_string);
 
-                    debug(" %s", note_string);
+                    log_msg(LOG_TRACE, " %s", note_string);
                 }
 
-                debug("\n");
+                log_msg(LOG_TRACE, "\n");
             }
 
             curr += sizeof(protracker_pattern_t);
         }
 
-        debug("Sample Data:\n");
+        log_msg(LOG_TRACE, "Sample Data:\n");
         const uint8_t* end = process_sample_data(&module, curr, max);
 
         if (!end)
         {
-            fprintf(stderr, "Failed to load sample data.\n");
+            log_msg(LOG_ERROR, "Failed to load sample data.\n");
             break;
         }
 
-        debug("Protracker module loaded successfully. (%ld)\n", max - end);
+        if (max < end)
+        {
+            log_msg(LOG_WARN, "%lu bytes not consumed while loading.\n", end - max);
+        }
+        else if (max > end)
+        {
+            log_msg(LOG_ERROR, "%lu bytes missing while loading.\n", max - end);
+            break;
+        }
+
+        log_msg(LOG_DEBUG, "Protracker module loaded successfully.\n");
 
         protracker_t* output = malloc(sizeof(protracker_t));
         if (!output)
         {
-            fprintf(stderr, "Failed to allocate module block");
+            log_msg(LOG_ERROR, "Failed to allocate module block");
             break;
         }
         *output = module;
@@ -263,7 +275,7 @@ protracker_t* protracker_load(const char* filename)
         return output;
     } while (0);
 
-    fprintf(stderr, "Failed to load Protracker module.\n");
+    log_msg(LOG_ERROR, "Failed to load Protracker module.\n");
 
     free(raw);
     free(module.patterns);
@@ -277,11 +289,11 @@ protracker_t* protracker_load(const char* filename)
 
 int protracker_convert(buffer_t* buffer, const protracker_t* module)
 {
-    debug(" - Header\n");
+    log_msg(LOG_TRACE, " - Header\n");
 
     buffer_add(buffer, &(module->header), sizeof(protracker_header_t));
 
-    debug(" - Samples\n");
+    log_msg(LOG_TRACE, " - Samples\n");
 
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
@@ -294,12 +306,12 @@ int protracker_convert(buffer_t* buffer, const protracker_t* module)
         buffer_add(buffer, &sample, sizeof(protracker_sample_t));
     }
 
-    debug(" - Song\n");
+    log_msg(LOG_TRACE, " - Song\n");
 
     buffer_add(buffer, &(module->song), sizeof(protracker_song_t));
     buffer_add(buffer, "M.K.", 4);
 
-    debug(" - Patterns (%lu)\n", module->num_patterns);
+    log_msg(LOG_TRACE, " - Patterns (%lu)\n", module->num_patterns);
 
     for (size_t i = 0; i < module->num_patterns; ++i)
     {
@@ -307,7 +319,7 @@ int protracker_convert(buffer_t* buffer, const protracker_t* module)
         buffer_add(buffer, pattern, sizeof(protracker_pattern_t));
     }
 
-    debug(" - Sample Data\n");
+    log_msg(LOG_TRACE, " - Sample Data\n");
 
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
@@ -380,7 +392,7 @@ void protracker_remove_unused_patterns(protracker_t* module)
     size_t used_patterns = protracker_get_pattern_count(module);
     size_t total_patterns = module->num_patterns;
 
-    debug("Removing unused patterns...\n");
+    log_msg(LOG_DEBUG, "Removing unused patterns...\n");
 
     for (size_t i = module->song.length; i < PT_NUM_POSITIONS; ++i)
     {
@@ -403,7 +415,7 @@ void protracker_remove_unused_patterns(protracker_t* module)
         size_t pattern_index = num_patterns;
         if (!used)
         {
-            debug(" #%lu - not used, removing...\n", i);
+            log_msg(LOG_TRACE, " #%lu - not used, removing...\n", i);
         }
         else
         {
@@ -447,7 +459,7 @@ static void sample_index_filter(const protracker_note_t* note, uint8_t channel, 
 
 void protracker_remove_unused_samples(protracker_t* module)
 {
-    debug("Removing unused samples...\n");
+    log_msg(LOG_DEBUG, "Removing unused samples...\n");
 
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
@@ -466,7 +478,7 @@ void protracker_remove_unused_samples(protracker_t* module)
             continue;
         }
 
-        debug(" #%lu - not used, removing...\n", (i+1));
+        log_msg(LOG_TRACE, " #%lu - not used, removing...\n", (i+1));
 
         free(module->sample_data[i]);
         module->sample_data[i] = NULL;
@@ -478,7 +490,7 @@ void protracker_remove_unused_samples(protracker_t* module)
 
 void protracker_trim_samples(protracker_t* module)
 {
-    debug("Trimming samples...\n");
+    log_msg(LOG_DEBUG, "Trimming samples...\n");
 
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
@@ -506,7 +518,7 @@ void protracker_trim_samples(protracker_t* module)
             continue;
         }
 
-        debug(" #%lu - %lu -> %lu bytes (%lu bytes saved)\n", (i + 1), sample->length * 2, sample_length * 2, (sample->length - sample_length) * 2);
+        log_msg(LOG_TRACE, " #%lu - %lu -> %lu bytes (%lu bytes saved)\n", (i + 1), sample->length * 2, sample_length * 2, (sample->length - sample_length) * 2);
         sample->length = sample_length;
     }
 }
@@ -529,7 +541,7 @@ void sample_replace_filter(protracker_note_t* note, uint8_t channel, void* data)
 
 void protracker_remove_identical_samples(protracker_t* module)
 {
-    debug("Removing identical samples...\n");
+    log_msg(LOG_DEBUG, "Removing identical samples...\n");
 
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
@@ -560,7 +572,7 @@ void protracker_remove_identical_samples(protracker_t* module)
                 continue;
             }
 
-            debug(" #%lu equals #%lu, merging...\n", (i+1), (j+1));
+            log_msg(LOG_TRACE, " #%lu equals #%lu, merging...\n", (i+1), (j+1));
 
             sample_replace_data replace_data = {
                 (j+1), (i+1)
@@ -595,7 +607,7 @@ static void compact_sample_filter(protracker_note_t* note, uint8_t channel, void
 
 void protracker_compact_sample_indexes(protracker_t* module)
 {
-    debug("Compacting sample indexes...\n");
+    log_msg(LOG_DEBUG, "Compacting sample indexes...\n");
 
     size_t sample_count = 0;
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
@@ -613,6 +625,7 @@ void protracker_compact_sample_indexes(protracker_t* module)
         }
         else
         {
+            log_msg(LOG_TRACE, " #%lu - not used, compacting.\n", (i+1));
         }
 
         if (sample_index == i)
