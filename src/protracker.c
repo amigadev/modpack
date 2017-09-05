@@ -478,7 +478,7 @@ void protracker_remove_unused_samples(protracker_t* module)
 
 void protracker_trim_samples(protracker_t* module)
 {
-    debug("Optimizing sample data...\n");
+    debug("Trimming samples...\n");
 
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
