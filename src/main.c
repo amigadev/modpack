@@ -25,6 +25,7 @@ int main(int argc, char* argv[])
 
     // pre-process samples
 
+    protracker_trim_samples(module);
     protracker_remove_unused_samples(module);
     protracker_remove_identical_samples(module);
     protracker_compact_sample_indexes(module);

@@ -150,6 +150,13 @@ void protracker_compact_sample_indexes(protracker_t* module);
 
 /**
  *
+ * Trim sample data, removing zero bytes from the end of non-looping samples
+ *
+**/
+void protracker_trim_samples(protracker_t* module);
+
+/**
+ *
  * Pattern iterator to simplify transforming protracker pattern data
  *
 **/

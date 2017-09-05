@@ -476,6 +476,42 @@ void protracker_remove_unused_samples(protracker_t* module)
     }
 }
 
+void protracker_trim_samples(protracker_t* module)
+{
+    debug("Optimizing sample data...\n");
+
+    for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
+    {
+        protracker_sample_t* sample = &(module->sample_headers[i]);
+        if (!sample->length || sample->repeat_length > 1)
+        {
+            continue;
+        }
+
+        const uint8_t* data = module->sample_data[i];
+        ssize_t sample_end;
+
+        for (sample_end = (sample->length) - 1; sample_end >= 0; --sample_end)
+        {
+            size_t byte_offset = sample_end << 1;
+            if (data[byte_offset] || data[byte_offset+1])
+            {
+                break;
+            }
+        }
+
+        size_t sample_length = (sample_end + 1);
+        if (sample_length == sample->length)
+        {
+            continue;
+        }
+
+        debug(" #%lu - %lu -> %lu bytes (%lu bytes saved)\n", (i + 1), sample->length * 2, sample_length * 2, (sample->length - sample_length) * 2);
+        sample->length = sample_length;
+    }
+}
+
+
 typedef struct
 {
     uint8_t src, dest;
