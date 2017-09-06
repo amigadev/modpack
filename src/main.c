@@ -4,6 +4,8 @@
 #include "options.h"
 #include "log.h"
 
+#include "../out/readme.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -22,7 +24,7 @@ bool show_help(int argc, char* argv[])
         return false;
     }
 
-    log_msg(LOG_INFO, "modpack HELP\n");
+    log_msg(LOG_INFO, "%s", README_md);
     return true;
 }
 

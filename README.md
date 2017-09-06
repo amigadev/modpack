@@ -59,6 +59,8 @@ Preceeding a boolean option with a minus ('-') will disable the option.
                         mod                     ProTracker module
                         p61a                    The Player 6.1a module
 
+Specifying `-` as the output filename will write the result to standard output.
+
 `-d <n>`                Change log level
 
                         Available log levels (<n>):
@@ -68,8 +70,6 @@ Preceeding a boolean option with a minus ('-') will disable the option.
                         2 - trace
 
 `-q`                    Quiet mode, disables all log output
-
-Specifying `-` as the output filename will write the result to standard output.
 
 Examples
 --------
