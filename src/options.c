@@ -2,6 +2,7 @@
 #include "log.h"
 
 #include <string.h>
+#include <stdio.h>
 
 bool has_option(const char* options, const char* name, bool defaultValue)
 {
@@ -23,14 +24,8 @@ bool has_option(const char* options, const char* name, bool defaultValue)
             continue;
         }
 
-        if ((begin != options) && (curr[-1] == '!'))
-        {
-            return false;
-        }
-        else
-        {
-            return true;
-        }
+
+        return !((curr != options) && (curr[-1] == '-'));
     }
 
 

@@ -1,4 +1,5 @@
 #include "player61a.h"
+#include "options.h"
 #include "log.h"
 
 /*
@@ -25,24 +26,23 @@
 
 #include <string.h>
 
-#if 0
-
 static const char* signature = "P61A";
-static int8_t deltas[] = {
-    0,1,2,4,8,16,32,64,128,-64,-32,-16,-8,-4,-2,-1
-};
 
 static void build_samples(player61a_t* output, const protracker_t* module)
 {
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
         uint8_t sample = (uint8_t)i+1;
-        sample_index_data search_data = { sample, false };
-
         const protracker_sample_t* input = &(module->sample_headers[i]);
 
     }
 }
+
+#if 0
+
+static int8_t deltas[] = {
+    0,1,2,4,8,16,32,64,128,-64,-32,-16,-8,-4,-2,-1
+};
 
 static uint16_t periods[] = {
 	856,808,762,720,678,640,604,570,538,508,480,453,    // octave 1
@@ -90,11 +90,18 @@ static uint8_t get_period_index(uint16_t period)
 
 bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char* options)
 {
-    //buffer_add(buffer, signature, strlen(signature));
+    log_msg(LOG_INFO, "Converting to The Player 6.1A...\n");
 
-    //player61a_t output = { 0 };
+    player61a_t output = { 0 };
 
-    //build_samples(&output, module);
+    build_samples(&output, module);
+
+    if (has_option(options, "sign", false))
+    {
+        log_msg(LOG_TRACE, " - Adding signature.\n");
+        buffer_add(buffer, signature, strlen(signature));
+    }
+
 
     return false;
 }

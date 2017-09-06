@@ -128,7 +128,7 @@ int main(int argc, char* argv[])
                 }
 
                 size_t size = buffer_count(&buffer);
-                if (fwrite(buffer_get(&buffer, 0), 1, size, fp) != size)
+                if ((size > 0) && (fwrite(buffer_get(&buffer, 0), 1, size, fp) != size))
                 {
                     log_msg(LOG_INFO, "failed to write %lu bytes.\n", size);
                     break;

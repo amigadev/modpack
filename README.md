@@ -25,7 +25,7 @@ Specifying `-` as name will read data from standard input.
 
 `-optimize <options>`   Apply optimizers on the loaded song. Available optimizers:
 
-                        unused_patterns         Remove unused pattern
+                        unused_patterns         Remove unused patterns
                         trim                    Trim samples to remove unused bytes
                         unused_samples          Remove unused samples (Sample index is preserved)
                         identical_samples       Merge identical samples (Pattern samples are rewritten to match)
