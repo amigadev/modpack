@@ -1,0 +1,12 @@
+OFFSET  LENGTH  BLOCK   NAME
+-4      4       Header  Signature ('P61A') - Optional
+0       2       Header  Sample Offset (Bytes)
+2       1       Header  Max Pattern
+3       1       Header  Sample Count (1-31) (Bit 6: 4-bit compression, Bit 7: delta compression)
+
+        * SAMPLE INFO *
+
+0       2       Sample  Sample Size (Words)
+2       1       Sample  Finetone (bit 0-3) (Bit 6: compressed)
+3       1       Sample  Volume (0-64)
+4       2       Sample  Repeat Start Offset (0xffff == sample does not repeat)

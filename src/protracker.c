@@ -225,7 +225,7 @@ protracker_t* protracker_load(const char* filename)
 
                 for(size_t k = 0; k < PT_NUM_CHANNELS; ++k)
                 {
-                    const protracker_note_t* note = &(pos->notes[k]);
+                    const protracker_note_t* note = &(pos->channels[k]);
 
                     char note_string[32];
                     char effect_string[8];
@@ -287,8 +287,10 @@ protracker_t* protracker_load(const char* filename)
     return NULL;
 }
 
-int protracker_convert(buffer_t* buffer, const protracker_t* module)
+bool protracker_convert(buffer_t* buffer, const protracker_t* module, const char* options)
 {
+    log_msg(LOG_INFO, "Exporting ProTracker module\n");
+
     log_msg(LOG_TRACE, " - Header\n");
 
     buffer_add(buffer, &(module->header), sizeof(protracker_header_t));
@@ -333,7 +335,7 @@ int protracker_convert(buffer_t* buffer, const protracker_t* module)
         buffer_add(buffer, module->sample_data[i], sample->length * 2);
     }
 
-    return 0;
+    return true;
 }
 
 void protracker_free(protracker_t* module)
@@ -523,6 +525,27 @@ void protracker_trim_samples(protracker_t* module)
     }
 }
 
+void protracker_clean_effects(protracker_t* module)
+{
+    log_msg(LOG_DEBUG, "Cleaning effects...\n");
+
+    for (size_t i = 0; i < module->num_patterns; ++i)
+    {
+        protracker_pattern_t* pattern = &(module->patterns[i]);
+
+        for (size_t j = 0; j < PT_PATTERN_ROWS; ++j)
+        {
+            protracker_pattern_row_t* row = &(pattern->rows[j]);
+
+            for (size_t k = 0; k < PT_NUM_CHANNELS; ++k)
+            {
+                protracker_note_t* note = &(row->channels[k]);
+                protracker_effect_t effect = protracker_get_effect(note);
+            }
+        }
+    }
+}
+
 
 typedef struct
 {
@@ -625,7 +648,20 @@ void protracker_compact_sample_indexes(protracker_t* module)
         }
         else
         {
-            log_msg(LOG_TRACE, " #%lu - not used, compacting.\n", (i+1));
+            bool existing = false;
+            for (size_t j = i + 1; j < PT_NUM_SAMPLES; ++j)
+            {
+                if (module->sample_headers[j].length)
+                {
+                    existing = true;
+                    break;
+                }
+            }
+
+            if (existing)
+            {
+                log_msg(LOG_TRACE, " #%lu - not used, compacting.\n", (i+1));
+            }
         }
 
         if (sample_index == i)
@@ -659,7 +695,7 @@ void protracker_transform_notes(protracker_t* module, void (*transform)(protrack
 
             for (size_t k = 0; k < PT_NUM_CHANNELS; ++k)
             {
-                protracker_note_t* note = &(row->notes[k]);
+                protracker_note_t* note = &(row->channels[k]);
 
                 transform(note, k, data);
             }
@@ -679,7 +715,7 @@ void protracker_scan_notes(const protracker_t* module, void (*scan)(const protra
 
             for (size_t k = 0; k < PT_NUM_CHANNELS; ++k)
             {
-                const protracker_note_t* note = &(row->notes[k]);
+                const protracker_note_t* note = &(row->channels[k]);
 
                 scan(note, k, data);
             }

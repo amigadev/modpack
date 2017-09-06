@@ -80,7 +80,7 @@ typedef struct
 
 typedef struct __attribute__((__packed__))
 {
-    protracker_note_t notes[PT_NUM_CHANNELS];
+    protracker_note_t channels[PT_NUM_CHANNELS];
 } protracker_pattern_row_t;
 
 typedef struct __attribute__((__packed__))
@@ -102,7 +102,7 @@ typedef struct __attribute__((__packed__))
 } protracker_t;
 
 protracker_t* protracker_load(const char* filename);
-int protracker_convert(buffer_t* buffer, const protracker_t* module);
+bool protracker_convert(buffer_t* buffer, const protracker_t* module, const char* opts);
 void protracker_free(protracker_t* module);
 
 uint8_t protracker_get_sample(const protracker_note_t* note);
@@ -154,6 +154,13 @@ void protracker_compact_sample_indexes(protracker_t* module);
  *
 **/
 void protracker_trim_samples(protracker_t* module);
+
+/**
+ *
+ * Clean effects, removing unnecessary effects and downgrading them to simpler variations
+ *
+**/
+void protracker_clean_effects(protracker_t* module);
 
 /**
  *
