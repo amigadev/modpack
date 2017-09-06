@@ -21,7 +21,7 @@ Arguments are processed from left to right. This means you can write more than o
 
                         mod                     ProTracker module
 
-Specifying '-' as name will read data from standard input.
+Specifying `-` as name will read data from standard input.
 
 `-optimize <options>`   Apply optimizers on the loaded song. Available optimizers:
 
@@ -69,7 +69,7 @@ Preceeding a boolean option with a minus ('-') will disable the option.
 
 `-q`                    Quiet mode, disables all log output
 
-Specifying '-' as the output filename will write the result to standard output.
+Specifying `-` as the output filename will write the result to standard output.
 
 Examples
 --------
