@@ -394,6 +394,8 @@ void sample_usage_filter(const protracker_note_t* note, uint8_t channel, void* d
 
 size_t protracker_get_used_samples(const protracker_t* song, bool* usage)
 {
+    memset(usage, 0, sizeof(bool) * PT_NUM_SAMPLES);
+
     sample_usage_data usage_data = { usage };
     protracker_scan_notes(song, sample_usage_filter, &usage_data);
 
