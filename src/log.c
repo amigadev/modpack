@@ -3,7 +3,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-static int log_level = LOG_INFO;
+static int log_level = LOG_LEVEL_INFO;
 
 void set_log_level(int new_level)
 {

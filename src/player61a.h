@@ -45,10 +45,20 @@ eie	bset	d4,d2
 #define TP61A_UC_E_PATTERN_DELAY        (0x40000000) // Extended: Pattern Delay
 #define TP61A_UC_E_INVERT_LOOP          (0x80000000) // Extended: Invert Loop
 
-typedef struct
+typedef struct __attribute__((__packed__))
 {
-    size_t sample_offset;
+    uint16_t length;            // length in words (when looping, subtract repeat offset for loop length)
+    uint8_t finetone;           // 0x0f = finetone, 0x20 = sample compression
+    uint8_t volume;             // 0-64
+    uint16_t repeat_offset;     // offset in words, 0xffff = no loop
 } player61a_sample_t;
+
+typedef struct __attribute__((__packed__))
+{
+    uint16_t sample_offset;
+    uint8_t max_pattern;
+    uint8_t sample_count; // 0x1f = sample count (1-31), 0x20 = 4-bit compression 0x40 = delta compression
+} player61a_header_t;
 
 typedef struct
 {
@@ -56,14 +66,15 @@ typedef struct
 
 typedef struct
 {
-    uint32_t useCode;
+    uint32_t usecode;
 
     // samples
 
+    player61a_header_t header;
     player61a_sample_t sample_headers[PT_NUM_SAMPLES];
 
     uint8_t* samples_block;
-    uint8_t* samples_length;
+    size_t samples_length;
 
 } player61a_t;
 

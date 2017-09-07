@@ -24,7 +24,7 @@ bool show_help(int argc, char* argv[])
         return false;
     }
 
-    log_msg(LOG_INFO, "%s", README_md);
+    LOG_INFO("%s", README_md);
     return true;
 }
 
@@ -54,7 +54,7 @@ int main(int argc, char* argv[])
 
             if (!opt)
             {
-                log_msg(LOG_ERROR, "No filename specified.\n");
+                LOG_ERROR("No filename specified.\n");
                 break;
             }
 
@@ -67,13 +67,13 @@ int main(int argc, char* argv[])
             }
             else
             {
-                log_msg(LOG_ERROR, "Unknown input format '%s'.\n", format);
+                LOG_ERROR("Unknown input format '%s'.\n", format);
                 break;
             }
 
             if (!module)
             {
-                log_msg(LOG_ERROR, "Failed to load module '%s'.\n");
+                LOG_ERROR("Failed to load module '%s'.\n");
                 break;
             }
 
@@ -83,7 +83,7 @@ int main(int argc, char* argv[])
         {
             if (!opt)
             {
-                log_msg(LOG_ERROR, "No filename specified.\n");
+                LOG_ERROR("No filename specified.\n");
                 break;
             }
 
@@ -102,7 +102,7 @@ int main(int argc, char* argv[])
                 {
                     if (!protracker_convert(&buffer, module, options))
                     {
-                        log_msg(LOG_ERROR, "Conversion to ProTracker failed.\n");
+                        LOG_ERROR("Conversion to ProTracker failed.\n");
                         break;
                     }
                 }
@@ -110,33 +110,33 @@ int main(int argc, char* argv[])
                 {
                     if (!player61a_convert(&buffer, module, options))
                     {
-                        log_msg(LOG_ERROR, "Conversion to The Player 6.1A failed.\n");
+                        LOG_ERROR("Conversion to The Player 6.1A failed.\n");
                         break;
                     }
                 }
                 else
                 {
-                    log_msg(LOG_ERROR, "Unknown output format '%s'.\n", format);
+                    LOG_ERROR("Unknown output format '%s'.\n", format);
                     break;
                 }
 
-                log_msg(LOG_INFO, "Writing result to '%s'...", filename);
+                LOG_INFO("Writing result to '%s'...", filename);
 
                 fp = fopen(filename, "wb");
                 if (!fp)
                 {
-                    log_msg(LOG_INFO, "failed to open '%s' for writing.\n", filename);
+                    LOG_INFO("failed to open '%s' for writing.\n", filename);
                     break;
                 }
 
                 size_t size = buffer_count(&buffer);
                 if ((size > 0) && (fwrite(buffer_get(&buffer, 0), 1, size, fp) != size))
                 {
-                    log_msg(LOG_INFO, "failed to write %lu bytes.\n", size);
+                    LOG_INFO("failed to write %lu bytes.\n", size);
                     break;
                 }
 
-                log_msg(LOG_INFO, "done.\n");
+                LOG_INFO("done.\n");
                 success = 1;
             }
             while (0);
@@ -158,7 +158,7 @@ int main(int argc, char* argv[])
         {
             if (!opt)
             {
-                log_msg(LOG_ERROR, "No options specified for optimization.\n");
+                LOG_ERROR("No options specified for optimization.\n");
                 break;
             }
 
@@ -200,7 +200,7 @@ int main(int argc, char* argv[])
         {
             if (!opt)
             {
-                log_msg(LOG_ERROR, "No argument specified for debug info.\n");
+                LOG_ERROR("No argument specified for debug info.\n");
                 break;
             }
 
@@ -209,7 +209,7 @@ int main(int argc, char* argv[])
         }
         else if (!strcmp("-q", arg))
         {
-            set_log_level(LOG_NONE);
+            set_log_level(LOG_LEVEL_NONE);
         }
     }
 
