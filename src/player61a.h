@@ -88,9 +88,8 @@ typedef struct
 
     player61a_pattern_offset_t* pattern_offsets;
 
-    uint8_t* samples_block;
-    size_t samples_length;
-
+    buffer_t patterns;
+    buffer_t samples;
 } player61a_t;
 
 bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char* opts);

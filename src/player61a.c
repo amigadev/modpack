@@ -45,11 +45,12 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
             continue;
         }
 
+        uint16_t length;
         if (input->repeat_length > 1)
         {
             // looping
 
-            uint16_t length = input->repeat_offset + input->repeat_length;
+            length = input->repeat_offset + input->repeat_length;
             LOG_TRACE(" #%lu - %u bytes (looped)\n", (i+1), length * 2);
 
             if (length != input->length)
@@ -66,13 +67,18 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
         {
             // not looping
 
+            length = input->length;
             LOG_TRACE(" #%lu - %u bytes\n", (i+1), input->length * 2);
 
-            sample->length = input->length;
+            sample->length = length;
             sample->finetone = input->finetone;
             sample->volume = input->volume > 64 ? 64 : input->volume;
             sample->repeat_offset = 0xffff;
         }
+
+        // TODO: compression / delta encoding
+
+        buffer_add(&(output->samples), module->sample_data[i], length * 2);
     }
 
     LOG_DEBUG(" %lu samples used.\n", sample_count);
@@ -91,9 +97,20 @@ static void build_patterns(player61a_t* output, const protracker_t* input, const
     memset(output->pattern_offsets, 0, input->num_patterns * sizeof(player61a_pattern_offset_t));
 }
 
-static void player61a_destroy(const player61a_t* module)
+static void player61a_create(player61a_t* module)
+{
+    memset(module, 0, sizeof(player61a_t));
+
+    buffer_init(&(module->patterns), 1);
+    buffer_init(&(module->samples), 1);
+}
+
+static void player61a_destroy(player61a_t* module)
 {
     free(module->pattern_offsets);
+
+    buffer_release(&(module->patterns));
+    buffer_release(&(module->samples));
 }
 
 #if 0
@@ -206,13 +223,19 @@ static void write_song(buffer_t* buffer, const player61a_t* module, const char* 
 
 static void write_samples(buffer_t* buffer, const player61a_t* module)
 {
+    size_t size = buffer_count(&(module->samples));
+    if (size > 0)
+    {
+        buffer_add(buffer, buffer_get(&(module->samples), 0), size);
+    }
 }
 
 bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char* options)
 {
     LOG_INFO("Converting to The Player 6.1A...\n");
 
-    player61a_t temp = { 0 };
+    player61a_t temp;
+    player61a_create(&temp);
 
     build_samples(&temp, module, options);
     build_patterns(&temp, module, options);
