@@ -56,9 +56,14 @@ typedef struct __attribute__((__packed__))
 typedef struct __attribute__((__packed__))
 {
     uint16_t sample_offset;
-    uint8_t max_pattern;
+    uint8_t num_patterns;
     uint8_t sample_count; // 0x1f = sample count (1-31), 0x20 = 4-bit compression 0x40 = delta compression
 } player61a_header_t;
+
+typedef struct __attribute__((__packed__))
+{
+    uint16_t channels[PT_NUM_CHANNELS];
+} player61a_pattern_offset_t;
 
 typedef struct
 {
@@ -72,6 +77,8 @@ typedef struct
 
     player61a_header_t header;
     player61a_sample_t sample_headers[PT_NUM_SAMPLES];
+
+    player61a_pattern_offset_t* pattern_offsets;
 
     uint8_t* samples_block;
     size_t samples_length;

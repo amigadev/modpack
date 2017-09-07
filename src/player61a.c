@@ -80,6 +80,19 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
     output->header.sample_count = (uint8_t)sample_count;
 }
 
+static void build_patterns(player61a_t* output, const protracker_t* module, const char* options)
+{
+    output->header.num_patterns = module->num_patterns;
+
+    output->pattern_offsets = malloc(module->num_patterns * sizeof(player61a_pattern_offset_t));
+    memset(output->pattern_offsets, 0, module->num_patterns * sizeof(player61a_pattern_offset_t));
+}
+
+static void player61a_destroy(const player61a_t* song)
+{
+    free(song->pattern_offsets);
+}
+
 #if 0
 
 static int8_t deltas[] = {
@@ -137,6 +150,7 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
     player61a_t temp = { 0 };
 
     build_samples(&temp, module, options);
+    build_patterns(&temp, module, options);
 
     if (has_option(options, "sign", false))
     {
@@ -150,13 +164,13 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
         player61a_header_t header;
 
         header.sample_offset = htons(temp.header.sample_offset);
-        header.max_pattern = temp.header.max_pattern;
+        header.num_patterns = temp.header.num_patterns;
         header.sample_count = temp.header.sample_count;
 
         buffer_add(buffer, &header, sizeof(header));
     }
 
-    // samples
+    // sample headers
 
     for (size_t i = 0; i < temp.header.sample_count; ++i)
     {
@@ -170,6 +184,30 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
 
         buffer_add(buffer, &sample, sizeof(sample));
     }
+
+    // pattern offsets
+
+    for (size_t i = 0; i < temp.header.num_patterns; ++i)
+    {
+        player61a_pattern_offset_t offset;
+        for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
+        {
+            offset.channels[j] = htons(temp.pattern_offsets[i].channels[j]);
+        }
+
+        buffer_add(buffer, &offset, sizeof(offset));
+    }
+
+    // song positions
+
+    {
+        buffer_add(buffer, module->song.positions, module->song.length);
+
+        uint8_t temp = 0xff;
+        buffer_add(buffer, &temp, sizeof(temp));
+    }
+
+    player61a_destroy(&temp);
 
     return true;
 }
