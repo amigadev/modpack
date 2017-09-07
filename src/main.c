@@ -4,7 +4,10 @@
 #include "options.h"
 #include "log.h"
 
+static const unsigned char help_text[] = {
 #include "../out/readme.h"
+, 0x00
+};
 
 #include <stdio.h>
 #include <string.h>
@@ -24,7 +27,7 @@ bool show_help(int argc, char* argv[])
         return false;
     }
 
-    LOG_INFO("%s", README_md);
+    LOG_INFO("%s", help_text);
     return true;
 }
 

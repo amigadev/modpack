@@ -16,7 +16,7 @@ out/%.o: src/%.c
 	$(CC) -c -o $@ $(CCFLAGS) $<
 
 out/readme.h: README.md
-	xxd -i $< $@
+	cat $< | tr "\`" " " | xxd -i > $@
 
 SHARED_HEADERS=src/buffer.h src/log.h src/options.h
 
