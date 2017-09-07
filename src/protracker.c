@@ -376,6 +376,39 @@ void protracker_set_sample(protracker_note_t* note, uint8_t sample)
     note->data[2] = (note->data[2] & 0x0f) | ((sample & 0x0f) << 4);
 }
 
+typedef struct
+{
+    bool* usage;
+} sample_usage_data;
+
+void sample_usage_filter(const protracker_note_t* note, uint8_t channel, void* data)
+{
+    sample_usage_data* internal = (sample_usage_data*)data;
+    uint8_t sample = protracker_get_sample(note);
+
+    if (sample > 0)
+    {
+        internal->usage[sample - 1] = true;
+    }
+}
+
+size_t protracker_get_used_samples(const protracker_t* song, bool* usage)
+{
+    sample_usage_data usage_data = { usage };
+    protracker_scan_notes(song, sample_usage_filter, &usage_data);
+
+    size_t count = 0;
+    for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
+    {
+        if (usage[i])
+        {
+            ++ count;
+        }
+    }
+
+    return count;
+}
+
 size_t protracker_get_pattern_count(const protracker_t* module)
 {
     uint8_t max_pattern = 0;
@@ -444,38 +477,16 @@ void protracker_remove_unused_patterns(protracker_t* module)
     module->num_patterns = num_patterns;
 }
 
-typedef struct
-{
-    uint8_t sample;
-    bool found;
-} sample_index_data;
-
-static void sample_index_filter(const protracker_note_t* note, uint8_t channel, void* data)
-{
-    sample_index_data* internal = (sample_index_data*)data;
-    if (internal->sample == protracker_get_sample(note))
-    {
-        internal->found = true;
-    }
-}
-
 void protracker_remove_unused_samples(protracker_t* module)
 {
     LOG_DEBUG("Removing unused samples...\n");
 
+    bool used[PT_NUM_SAMPLES];
+    size_t sample_count = protracker_get_used_samples(module, used);
+
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
-        uint8_t sample = (uint8_t)i+1;
-        sample_index_data search_data = { sample, false };
-
-        if (!module->sample_headers[i].length)
-        {
-            continue;
-        }
-
-        protracker_scan_notes(module, sample_index_filter, &search_data);
-
-        if (search_data.found)
+        if (used[i] || !module->sample_headers[i].length)
         {
             continue;
         }
@@ -632,19 +643,16 @@ void protracker_compact_sample_indexes(protracker_t* module)
 {
     LOG_DEBUG("Compacting sample indexes...\n");
 
-    size_t sample_count = 0;
-    for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
+    bool used[PT_NUM_SAMPLES];
+    size_t sample_count = protracker_get_used_samples(module, used);
+
+    for (size_t i = 0, sample_offset = 0; i < PT_NUM_SAMPLES; ++i)
     {
-        uint8_t sample = (uint8_t)i+1;
-        sample_index_data search_data = { sample, false };
-
-        protracker_scan_notes(module, sample_index_filter, &search_data);
-
-        size_t sample_index = sample_count;
+        size_t sample_index = sample_offset;
         bool remove = false;
-        if (search_data.found)
+        if (used[i])
         {
-            ++ sample_count;
+            ++ sample_offset;
         }
         else
         {

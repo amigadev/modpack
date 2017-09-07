@@ -113,6 +113,18 @@ void protracker_set_sample(protracker_note_t* note, uint8_t sample);
 
 /**
  *
+ * Get sample usage in song
+ *
+ * song - ProTracker song
+ * usage - Usage table (must allow for PT_NUM_SAMPLES entries)
+ *
+ * Returns number of active samples
+ *
+**/
+size_t protracker_get_used_samples(const protracker_t* song, bool* usage);
+
+/**
+ *
  * module - ProTracker module
  *
  * returns number of patterns used in song

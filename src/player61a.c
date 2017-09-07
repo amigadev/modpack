@@ -32,17 +32,18 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
 {
     LOG_DEBUG("Building sample table:\n");
 
-    size_t sample_count  = 0;
+    bool usage[PT_NUM_SAMPLES];
+    size_t sample_count = protracker_get_used_samples(module, usage);
+
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
         const protracker_sample_t* input = &(module->sample_headers[i]);
         player61a_sample_t* sample = &(output->sample_headers[i]);
 
-        if (!input->length)
+        if (!usage[i])
         {
             continue;
         }
-        sample_count = i + 1;
 
         if (input->repeat_length > 1)
         {
@@ -56,10 +57,10 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
                 LOG_WARN("Looped sample #%lu truncated (%u -> %u bytes).\n", (i+1), input->length * 2, length * 2);
             }
 
-            sample->length = htons(length);
+            sample->length = length;
             sample->finetone = input->finetone;
             sample->volume = input->volume > 64 ? 64 : input->volume;
-            sample->repeat_offset = htons(input->repeat_offset);
+            sample->repeat_offset = input->repeat_offset;
         }
         else
         {
@@ -67,10 +68,10 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
 
             LOG_TRACE(" #%lu - %u bytes\n", (i+1), input->length * 2);
 
-            sample->length = htons(input->length);
+            sample->length = input->length;
             sample->finetone = input->finetone;
             sample->volume = input->volume > 64 ? 64 : input->volume;
-            sample->repeat_offset = htons(0xffff);
+            sample->repeat_offset = 0xffff;
         }
     }
 
@@ -133,9 +134,9 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
 {
     LOG_INFO("Converting to The Player 6.1A...\n");
 
-    player61a_t output = { 0 };
+    player61a_t temp = { 0 };
 
-    build_samples(&output, module, options);
+    build_samples(&temp, module, options);
 
     if (has_option(options, "sign", false))
     {
@@ -143,6 +144,32 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
         buffer_add(buffer, signature, strlen(signature));
     }
 
+    // header
 
-    return false;
+    {
+        player61a_header_t header;
+
+        header.sample_offset = htons(temp.header.sample_offset);
+        header.max_pattern = temp.header.max_pattern;
+        header.sample_count = temp.header.sample_count;
+
+        buffer_add(buffer, &header, sizeof(header));
+    }
+
+    // samples
+
+    for (size_t i = 0; i < temp.header.sample_count; ++i)
+    {
+        const player61a_sample_t* in = &(temp.sample_headers[i]);
+        player61a_sample_t sample;
+
+        sample.length = htons(in->length);
+        sample.finetone = in->finetone;
+        sample.volume = in->volume;
+        sample.repeat_offset = htons(in->repeat_offset);
+
+        buffer_add(buffer, &sample, sizeof(sample));
+    }
+
+    return true;
 }
