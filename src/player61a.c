@@ -86,11 +86,6 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
     output->header.sample_count = (uint8_t)sample_count;
 }
 
-#define CHANNEL_ALL             (0x00)
-#define CHANNEL_COMMAND         (0x60)
-#define CHANNEL_NOTE_INSTRUMENT (0x70)
-#define CHANNEL_EMPTY           (0x7f)
-
 /*
 
 * P61 Pattern Format:
@@ -115,7 +110,11 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
 
 */
 
-#define CHANNEL_COMMAND_ARPEGGIO    (8) // P61A uses command 8 for arpeggio instead of 0
+
+#define CHANNEL_ALL             (0x00)
+#define CHANNEL_COMMAND         (0x60)
+#define CHANNEL_NOTE_INSTRUMENT (0x70)
+#define CHANNEL_EMPTY           (0x7f)
 
 static uint16_t periods[] = {
     856,808,762,720,678,640,604,570,538,508,480,453,    // octave 1
@@ -146,7 +145,14 @@ static size_t convert_channel(player61a_channel_t* out, const protracker_channel
     bool has_command = (effect.cmd + effect.data.value) != 0;
     switch (effect.cmd)
     {
-        case PT_CMD_ARPEGGIO: break;
+        case PT_CMD_ARPEGGIO:
+        {
+            if (effect.data.value)
+            {
+                effect.cmd = PT_CMD_8; // P61A uses 8 for arpeggio
+            }
+        }
+        break;
 
         case PT_CMD_SLIDE_UP:
         case PT_CMD_SLIDE_DOWN:
@@ -155,9 +161,61 @@ static size_t convert_channel(player61a_channel_t* out, const protracker_channel
         }
         break;
 
+        // TODO: these commands need processing
+        case PT_CMD_CONTINUE_SLIDE:
+        case PT_CMD_CONTINUE_VIBRATO:
         case PT_CMD_VOLUME_SLIDE:
+        case PT_CMD_POS_JUMP:
+        case PT_CMD_PATTERN_BREAK:
         {
+        }
+        break;
 
+        case PT_CMD_SET_VOLUME:
+        {
+            effect.data.value = effect.data.value > 64 ? 64 : effect.data.value;
+        }
+        break;
+
+        case PT_CMD_8:
+        {
+            effect.cmd = PT_CMD_EXTENDED;
+            effect.data.ext.cmd = PT_ECMD_E8;
+        }
+        break;
+
+        case PT_CMD_EXTENDED:
+        {
+            switch (effect.data.ext.cmd)
+            {
+                case PT_ECMD_FILTER:                    // E0x
+                {
+                    effect.data.ext.value = (effect.data.ext.value & 1) << 1;
+                }
+                break;
+
+                case PT_ECMD_CUT_SAMPLE:                // ECx
+                {
+                    if (effect.data.ext.value == 0)
+                    {
+                        effect.cmd = PT_CMD_SET_VOLUME;
+                        effect.data.value = 0;
+                    }
+                }
+                break;
+
+                case PT_ECMD_FINESLIDE_UP:              // E1x
+                case PT_ECMD_FINESLIDE_DOWN:            // E2x
+                case PT_ECMD_RETRIGGER_SAMPLE:          // E9x
+                case PT_ECMD_FINE_VOLUME_SLIDE_UP:      // EAx
+                case PT_ECMD_FINE_VOLUME_SLIDE_DOWN:    // EBx
+                case PT_ECMD_DELAY_SAMPLE:              // EDx
+                case PT_ECMD_DELAY_PATTERN:             // EEx
+                {
+                    has_command = effect.data.ext.value != 0;
+                }
+                break;
+            }
         }
         break;
     }
@@ -167,6 +225,8 @@ static size_t convert_channel(player61a_channel_t* out, const protracker_channel
         effect.cmd = 0;
         effect.data.value = 0;
     }
+
+    *usecode |= (effect.cmd == PT_CMD_EXTENDED) ? (1 << (effect.data.ext.cmd + 16)) : (1 << (effect.cmd));
 
     // empty channel
     if (!note && !instrument && !has_command)
@@ -190,7 +250,7 @@ static size_t convert_channel(player61a_channel_t* out, const protracker_channel
     // command only
     if (!note && !instrument && has_command)
     {
-        // o110cccc bbbbbbbb		Only command
+        // o110cccc bbbbbbbb
         out->data[0] = CHANNEL_COMMAND | (effect.cmd & 0x0f);
         out->data[1] = effect.data.value;
         out->data[2] = 0;
@@ -215,12 +275,6 @@ static size_t build_channel_entries(player61a_channel_t* channel, const protrack
 
         player61a_channel_t out;
         size_t size = convert_channel(&out, in, row, channel_index, usecode);
-
-        bool has_break = false;
-        for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
-        {
-
-        }
     }
     return PT_PATTERN_ROWS;
 }
@@ -243,6 +297,8 @@ static void build_patterns(player61a_t* output, const protracker_t* input, const
         {
             player61a_channel_t channel[PT_PATTERN_ROWS];
             size_t length = build_channel_entries(channel, &(input->patterns[i]), j, usecode);
+
+            LOG_TRACE("%lu %lu - %lu\n", i, j, length);
         }
     }
 }
@@ -348,6 +404,8 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
 
     build_samples(&temp, module, options);
     build_patterns(&temp, module, options, &usecode);
+
+    LOG_TRACE("usecode: %08x\n", usecode);
 
     if (has_option(options, "song", true))
     {
