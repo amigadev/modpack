@@ -1,16 +1,16 @@
 Modpack - Optimizer, Compressor and Converter
 ==================================
 
-Utility to optimize, compress and convert songs between different format.
+Utility to optimize, compress and convert songs between different formats.
 
 Supported input formats are:
 
-MOD - ProTracker
+    MOD - ProTracker
 
 Supported output formats are:
 
-MOD - ProTracker
-P61A - The Player 6.1A
+    MOD - ProTracker
+    P61A - The Player 6.1A
 
 Arguments
 ---------

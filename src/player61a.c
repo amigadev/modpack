@@ -134,6 +134,46 @@ static uint8_t get_note_index(uint16_t period)
     return 0;
 }
 
+typedef struct
+{
+    size_t patterns;
+    size_t samples;
+} player61a_offsets_t;
+
+static player61a_offsets_t get_module_offsets(const player61a_t* module)
+{
+    player61a_offsets_t offsets;
+
+    size_t curr = 0;
+
+    curr += sizeof(player61a_header_t);   // header
+    curr += sizeof(player61a_sample_t) * module->header.sample_count; // sample headers
+    curr += sizeof(player61a_pattern_offset_t) * module->header.num_patterns; // pattern offsets
+    curr += module->song.length; // song positions
+
+    offsets.patterns = curr;
+
+    curr += buffer_count(&(module->patterns)); // tracks
+
+    offsets.samples = curr;
+
+    return offsets;
+}
+
+static size_t get_channel_length(const player61a_channel_t* channel)
+{
+    if ((channel->data[0] & CHANNEL_EMPTY) == CHANNEL_EMPTY)
+        return 1;
+
+    if ((channel->data[0] & CHANNEL_NOTE_INSTRUMENT) == CHANNEL_NOTE_INSTRUMENT)
+        return 2;
+
+    if ((channel->data[0] & CHANNEL_COMMAND) == CHANNEL_COMMAND)
+        return 2;
+
+    return 3;
+}
+
 static size_t convert_channel(player61a_channel_t* out, const protracker_channel_t* in, const protracker_pattern_row_t* row, size_t channel_index, uint32_t* usecode)
 {
     uint8_t instrument = protracker_get_sample(in);
@@ -266,7 +306,7 @@ static size_t convert_channel(player61a_channel_t* out, const protracker_channel
     return 3;
 }
 
-static size_t build_channel_entries(player61a_channel_t* channel, const protracker_pattern_t* pattern, size_t channel_index, uint32_t* usecode)
+static size_t build_track(player61a_channel_t* channel, const protracker_pattern_t* pattern, size_t channel_index, uint32_t* usecode)
 {
     for (size_t i = 0; i < PT_PATTERN_ROWS; ++i)
     {
@@ -295,10 +335,21 @@ static void build_patterns(player61a_t* output, const protracker_t* input, const
     {
         for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
         {
-            player61a_channel_t channel[PT_PATTERN_ROWS];
-            size_t length = build_channel_entries(channel, &(input->patterns[i]), j, usecode);
+            player61a_channel_t track[PT_PATTERN_ROWS];
 
-            LOG_TRACE("%lu %lu - %lu\n", i, j, length);
+            size_t length = build_track(track, &(input->patterns[i]), j, usecode);
+
+            size_t offset = buffer_count(&(output->patterns));
+
+            output->pattern_offsets[i].channels[j] = offset;
+
+            for (size_t k = 0; k < length; ++k)
+            {
+                const player61a_channel_t* channel = &(track[k]);
+                buffer_add(&(output->patterns), channel, get_channel_length(channel));
+            }
+
+            LOG_TRACE("CH %lu,%lu: %lu\n", i, j, buffer_count(&(output->patterns)) - offset);
         }
     }
 }
@@ -335,12 +386,14 @@ static void write_song(buffer_t* buffer, const player61a_t* module, const char* 
         buffer_add(buffer, signature, strlen(signature));
     }
 
+    player61a_offsets_t offsets = get_module_offsets(module);
+
     // header
 
     {
         player61a_header_t header;
 
-        header.sample_offset = htons(module->header.sample_offset);
+        header.sample_offset = htons(offsets.samples);
         header.num_patterns = module->header.num_patterns;
         header.sample_count = module->header.sample_count;
 
@@ -382,6 +435,14 @@ static void write_song(buffer_t* buffer, const player61a_t* module, const char* 
 
         uint8_t temp = 0xff;
         buffer_add(buffer, &temp, sizeof(temp));
+    }
+
+    // tracks
+
+    size_t pattern_size = buffer_count(&(module->patterns));
+    if (pattern_size)
+    {
+        buffer_add(buffer, buffer_get(&(module->patterns), 0), pattern_size);
     }
 }
 
