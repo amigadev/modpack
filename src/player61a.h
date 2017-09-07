@@ -15,6 +15,8 @@ eie	bset	d4,d2
 	move.l	d2,usec(a5)			; Mark command used
 */
 
+#define TP61A_CHANNEL_BYTES (3)
+
 #define TP61A_UC_FINETUNE               (0x00000001) // Finetune
 #define TP61A_UC_PORTAMENTO_UP          (0x00000002) // Portamento Down
 #define TP61A_UC_PORTAMENTO_DOWN        (0x00000004) // Portamento Up
@@ -73,7 +75,8 @@ typedef struct
 
 typedef struct
 {
-} player61a_note_t;
+    uint8_t data[TP61A_CHANNEL_BYTES];
+} player61a_channel_t;
 
 typedef struct
 {

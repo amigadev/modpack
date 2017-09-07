@@ -1,5 +1,6 @@
 #include "protracker.h"
 #include "buffer.h"
+#include "options.h"
 #include "log.h"
 
 #include <stdio.h>
@@ -20,11 +21,11 @@ static char* notes[] = {
     "C-","C#","D-","D#","E-","F-","F#","G-","G#","A-","A#","B-"
 };
 
-void build_note(const protracker_note_t* note, char* out)
+void build_note(const protracker_channel_t* channel, char* out)
 {
-    uint8_t sample = protracker_get_sample(note);
-    uint16_t period = protracker_get_period(note);
-    protracker_effect_t effect = protracker_get_effect(note);
+    uint8_t sample = protracker_get_sample(channel);
+    uint16_t period = protracker_get_period(channel);
+    protracker_effect_t effect = protracker_get_effect(channel);
 
     if (sample > 0 && period > 0)
     {
@@ -34,17 +35,17 @@ void build_note(const protracker_note_t* note, char* out)
             {
                 if (octaves[i][j] == period)
                 {
-                    sprintf(out, "%s%ld%02X%1X%1X%1X", notes[j], i, sample, effect.high, effect.middle, effect.low);
+                    sprintf(out, "%s%ld%02X%1X%1X%1X", notes[j], i, sample, effect.cmd, effect.data.ext.cmd, effect.data.ext.value);
                     return;
                 }
             }
         }
 
-        sprintf(out, "???%02X%1X%1X%1X", sample, effect.high, effect.middle, effect.low);
+        sprintf(out, "???%02X%1X%1X%1X", sample, effect.cmd, effect.data.ext.cmd, effect.data.ext.value);
     }
     else
     {
-        sprintf(out, "---%02X%1X%1X%1X", sample, effect.high, effect.middle, effect.low);
+        sprintf(out, "---%02X%1X%1X%1X", sample, effect.cmd, effect.data.ext.cmd, effect.data.ext.value);
     }
 }
 
@@ -225,14 +226,13 @@ protracker_t* protracker_load(const char* filename)
 
                 for(size_t k = 0; k < PT_NUM_CHANNELS; ++k)
                 {
-                    const protracker_note_t* note = &(pos->channels[k]);
+                    const protracker_channel_t* channel = &(pos->channels[k]);
 
-                    char note_string[32];
-                    char effect_string[8];
+                    char channel_string[32];
 
-                    build_note(note, note_string);
+                    build_note(channel, channel_string);
 
-                    LOG_TRACE(" %s", note_string);
+                    LOG_TRACE(" %s", channel_string);
                 }
 
                 LOG_TRACE("\n");
@@ -348,32 +348,37 @@ void protracker_free(protracker_t* module)
     free(module);
 }
 
-uint8_t protracker_get_sample(const protracker_note_t* note)
+uint8_t protracker_get_sample(const protracker_channel_t* channel)
 {
-    return (note->data[0] & 0x10) | ((note->data[2] & 0xf0) >> 4);
+    return (channel->data[0] & 0x10) | ((channel->data[2] & 0xf0) >> 4);
 
 }
 
-uint16_t protracker_get_period(const protracker_note_t* note)
+uint16_t protracker_get_period(const protracker_channel_t* channel)
 {
-    return ((note->data[0] & 15) << 8) + note->data[1];
+    return ((channel->data[0] & 15) << 8) + channel->data[1];
 }
 
-protracker_effect_t protracker_get_effect(const protracker_note_t* note)
+protracker_effect_t protracker_get_effect(const protracker_channel_t* channel)
 {
-    protracker_effect_t effect = {
-        (note->data[2] & 0x0f),
-        (note->data[3] & 0xf0) >> 4,
-        note->data[3] & 0x0f
-    };
+    protracker_effect_t effect;
+
+    effect.cmd = (channel->data[2] & 0x0f);
+    effect.data.value = channel->data[3];
 
     return effect;
 }
 
-void protracker_set_sample(protracker_note_t* note, uint8_t sample)
+void protracker_set_sample(protracker_channel_t* channel, uint8_t sample)
 {
-    note->data[0] = (note->data[0] & 0x0f) | (sample & 0x10);
-    note->data[2] = (note->data[2] & 0x0f) | ((sample & 0x0f) << 4);
+    channel->data[0] = (channel->data[0] & 0x0f) | (sample & 0x10);
+    channel->data[2] = (channel->data[2] & 0x0f) | ((sample & 0x0f) << 4);
+}
+
+void protracker_set_effect(protracker_channel_t* channel, const protracker_effect_t* effect)
+{
+    channel->data[2] = (channel->data[2] & 0xf0) | effect->cmd;
+    channel->data[3] = effect->data.value;
 }
 
 typedef struct
@@ -381,10 +386,10 @@ typedef struct
     bool* usage;
 } sample_usage_data;
 
-void sample_usage_filter(const protracker_note_t* note, uint8_t channel, void* data)
+void sample_usage_filter(const protracker_channel_t* channel, uint8_t index, void* data)
 {
     sample_usage_data* internal = (sample_usage_data*)data;
-    uint8_t sample = protracker_get_sample(note);
+    uint8_t sample = protracker_get_sample(channel);
 
     if (sample > 0)
     {
@@ -538,9 +543,11 @@ void protracker_trim_samples(protracker_t* module)
     }
 }
 
-void protracker_clean_effects(protracker_t* module)
+void protracker_clean_effects(protracker_t* module, const char* options)
 {
     LOG_DEBUG("Cleaning effects...\n");
+
+    bool clean_e8 = has_option(options, "clean:e8", false);
 
     for (size_t i = 0; i < module->num_patterns; ++i)
     {
@@ -550,10 +557,45 @@ void protracker_clean_effects(protracker_t* module)
         {
             protracker_pattern_row_t* row = &(pattern->rows[j]);
 
+            bool has_break = false;
             for (size_t k = 0; k < PT_NUM_CHANNELS; ++k)
             {
-                protracker_note_t* note = &(row->channels[k]);
-                protracker_effect_t effect = protracker_get_effect(note);
+                protracker_channel_t* channel = &(row->channels[k]);
+                protracker_effect_t effect = protracker_get_effect(channel);
+
+                switch (effect.cmd)
+                {
+                    case PT_CMD_POS_JUMP:
+                    case PT_CMD_PATTERN_BREAK:
+                    {
+                        if (has_break)
+                        {
+                            LOG_TRACE(" (P:%lu,R:%lu,C:%lu) - Removed POS. JUMP/PAT. BREAK\n", i, j, k);
+                            memset(&effect, 0, sizeof(effect));
+                        }
+                        has_break = true;
+                    }
+                    break;
+
+                    case PT_CMD_EXTENDED:
+                    {
+                        switch (effect.data.ext.cmd)
+                        {
+                            case PT_ECMD_E8:
+                            {
+                                if (clean_e8)
+                                {
+                                    LOG_TRACE(" (P:%lu,R:%lu,C:%lu) - Removed E8x\n", i, j, k);
+                                    memset(&effect, 0, sizeof(effect));
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    break;
+                }
+
+                protracker_set_effect(channel, &effect);
             }
         }
     }
@@ -565,13 +607,13 @@ typedef struct
     uint8_t src, dest;
 } sample_replace_data;
 
-void sample_replace_filter(protracker_note_t* note, uint8_t channel, void* data)
+void sample_replace_filter(protracker_channel_t* channel, uint8_t index, void* data)
 {
     sample_replace_data* internal = (sample_replace_data*)data;
-    uint8_t sample = protracker_get_sample(note);
+    uint8_t sample = protracker_get_sample(channel);
     if (sample == internal->src)
     {
-        protracker_set_sample(note, internal->dest);
+        protracker_set_sample(channel, internal->dest);
     }
 }
 
@@ -630,14 +672,14 @@ typedef struct
     uint8_t sample, delta;
 } compact_sample_data;
 
-static void compact_sample_filter(protracker_note_t* note, uint8_t channel, void* data)
+static void compact_sample_filter(protracker_channel_t* channel, uint8_t index, void* data)
 {
     compact_sample_data* internal = (compact_sample_data*)data;
-    uint8_t sample = protracker_get_sample(note);
+    uint8_t sample = protracker_get_sample(channel);
 
     if (sample == internal->sample)
     {
-        protracker_set_sample(note, sample-internal->delta);
+        protracker_set_sample(channel, sample-internal->delta);
     }
 }
 
@@ -693,7 +735,7 @@ void protracker_compact_sample_indexes(protracker_t* module)
     }
 }
 
-void protracker_transform_notes(protracker_t* module, void (*transform)(protracker_note_t*, uint8_t channel, void* data), void* data)
+void protracker_transform_notes(protracker_t* module, void (*transform)(protracker_channel_t*, uint8_t index, void* data), void* data)
 {
     for (size_t i = 0, n = module->song.length; i < n; ++i)
     {
@@ -705,15 +747,15 @@ void protracker_transform_notes(protracker_t* module, void (*transform)(protrack
 
             for (size_t k = 0; k < PT_NUM_CHANNELS; ++k)
             {
-                protracker_note_t* note = &(row->channels[k]);
+                protracker_channel_t* channel = &(row->channels[k]);
 
-                transform(note, k, data);
+                transform(channel, k, data);
             }
         }
     }
 }
 
-void protracker_scan_notes(const protracker_t* module, void (*scan)(const protracker_note_t*, uint8_t channel, void* data), void* data)
+void protracker_scan_notes(const protracker_t* module, void (*scan)(const protracker_channel_t*, uint8_t index, void* data), void* data)
 {
     for (size_t i = 0, n = module->song.length; i < n; ++i)
     {
@@ -725,9 +767,9 @@ void protracker_scan_notes(const protracker_t* module, void (*scan)(const protra
 
             for (size_t k = 0; k < PT_NUM_CHANNELS; ++k)
             {
-                const protracker_note_t* note = &(row->channels[k]);
+                const protracker_channel_t* channel = &(row->channels[k]);
 
-                scan(note, k, data);
+                scan(channel, k, data);
             }
         }
     }

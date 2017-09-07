@@ -26,12 +26,14 @@ Specifying `-` as name will read data from standard input.
 `-optimize <options>`   Apply optimizers on the loaded song. Available optimizers:
 
                         unused_patterns         Remove unused patterns
-                        trim                    Trim samples to remove unused bytes
+                        trim                    Trim samples to remove unused bytes (not loops)
+                        trim_loops              Trim trailing data from looped samples (implies 'trim')
                         unused_samples          Remove unused samples (Sample index is preserved)
                         identical_samples       Merge identical samples (Pattern samples are rewritten to match)
                         compact_samples         Remove empty space in sample table
-                        clean_effects           Clean up effects, removing unnecessary commands and downgrading complex ones to simpler variants
-                        all                     Apply all available optimizers
+                        clean                   Clean up effects, removing unnecessary commands and downgrading complex ones to simpler variants
+                        clean:e8                Remove E8x commands from patterns (implies 'clean', not enabled by 'all')
+                        all                     Apply all available optimizers (where applicable)
 
 `-opts:<options>`       Set comma-separated options for exporter
 
@@ -44,6 +46,8 @@ Specifying `-` as name will read data from standard input.
                         sign                    Add signature ('P61A') (default: disabled)
                         4bit[=RANGE]            4-bit compression (lossy) (default: disabled)
                         delta                   Delta encoding (default: disabled)
+                        [-]optimize_patterns    Optimize patterns (notes, samples, effects) (default: enabled)
+                        [-]compress_patterns    Compress patterns (default: enabled)
                         [-]song                 Write song data to output (default: enabled)
                         [-]samples              Write sample data to output (default: enabled)
 

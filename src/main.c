@@ -192,9 +192,9 @@ int main(int argc, char* argv[])
                 protracker_compact_sample_indexes(module);
             }
 
-            if (has_option(opt, "clean_effects", false) || all)
+            if (has_option(opt, "clean", false) || has_option(opt, "clean:e8", false) || all)
             {
-                protracker_clean_effects(module);
+                protracker_clean_effects(module, opt);
             }
 
             ++i;

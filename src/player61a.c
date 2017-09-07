@@ -86,56 +86,10 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
     output->header.sample_count = (uint8_t)sample_count;
 }
 
-static void build_patterns(player61a_t* output, const protracker_t* input, const char* options)
-{
-    output->header.num_patterns = input->num_patterns;
-
-    output->song.length = input->song.length;
-    memcpy(output->song.positions, input->song.positions, sizeof(uint8_t) * PT_NUM_POSITIONS);
-
-    output->pattern_offsets = malloc(input->num_patterns * sizeof(player61a_pattern_offset_t));
-    memset(output->pattern_offsets, 0, input->num_patterns * sizeof(player61a_pattern_offset_t));
-}
-
-static void player61a_create(player61a_t* module)
-{
-    memset(module, 0, sizeof(player61a_t));
-
-    buffer_init(&(module->patterns), 1);
-    buffer_init(&(module->samples), 1);
-}
-
-static void player61a_destroy(player61a_t* module)
-{
-    free(module->pattern_offsets);
-
-    buffer_release(&(module->patterns));
-    buffer_release(&(module->samples));
-}
-
-#if 0
-
-static int8_t deltas[] = {
-    0,1,2,4,8,16,32,64,128,-64,-32,-16,-8,-4,-2,-1
-};
-
-static uint16_t periods[] = {
-    856,808,762,720,678,640,604,570,538,508,480,453,    // octave 1
-    428,404,381,360,339,320,302,285,269,254,240,226,    // octave 2
-    214,202,190,180,170,160,151,143,135,127,120,113     // octave 3
-};
-
-static uint8_t get_period_index(uint16_t period)
-{
-    for (size_t i = 0; i < (sizeof(periods) / sizeof(uint16_t)); ++i)
-    {
-        if (periods[i] == period)
-        {
-            return (uint8_t)(i+1);
-        }
-    }
-    return 0;
-}
+#define CHANNEL_ALL             (0x00)
+#define CHANNEL_COMMAND         (0x60)
+#define CHANNEL_NOTE_INSTRUMENT (0x70)
+#define CHANNEL_EMPTY           (0x7f)
 
 /*
 
@@ -160,6 +114,160 @@ static uint8_t get_period_index(uint16_t period)
 * 11nnnnnn oooooooo oooooooo	Jump o (16 bit offset) bytes back for n rows
 
 */
+
+#define CHANNEL_COMMAND_ARPEGGIO    (8) // P61A uses command 8 for arpeggio instead of 0
+
+static uint16_t periods[] = {
+    856,808,762,720,678,640,604,570,538,508,480,453,    // octave 1
+    428,404,381,360,339,320,302,285,269,254,240,226,    // octave 2
+    214,202,190,180,170,160,151,143,135,127,120,113     // octave 3
+};
+
+static uint8_t get_note_index(uint16_t period)
+{
+    for (size_t i = 0; i < (sizeof(periods) / sizeof(uint16_t)); ++i)
+    {
+        if (periods[i] == period)
+        {
+            return (uint8_t)(i+1);
+        }
+    }
+    return 0;
+}
+
+static size_t convert_channel(player61a_channel_t* out, const protracker_channel_t* in, const protracker_pattern_row_t* row, size_t channel_index, uint32_t* usecode)
+{
+    uint8_t instrument = protracker_get_sample(in);
+    uint16_t period = protracker_get_period(in);
+    protracker_effect_t effect = protracker_get_effect(in);
+
+    uint8_t note = get_note_index(period);
+
+    bool has_command = (effect.cmd + effect.data.value) != 0;
+    switch (effect.cmd)
+    {
+        case PT_CMD_ARPEGGIO: break;
+
+        case PT_CMD_SLIDE_UP:
+        case PT_CMD_SLIDE_DOWN:
+        {
+            has_command = effect.data.value != 0;
+        }
+        break;
+
+        case PT_CMD_VOLUME_SLIDE:
+        {
+
+        }
+        break;
+    }
+
+    if (!has_command)
+    {
+        effect.cmd = 0;
+        effect.data.value = 0;
+    }
+
+    // empty channel
+    if (!note && !instrument && !has_command)
+    {
+        // o1111111
+        out->data[0] = CHANNEL_EMPTY;
+        out->data[1] = out->data[2] = 0;
+        return 1;
+    }
+
+    // note + instrument
+    if (note && instrument && !has_command)
+    {
+        // o1110nnn nnniiiii
+        out->data[0] = CHANNEL_NOTE_INSTRUMENT | ((note >> 3) & 0x7);
+        out->data[1] = ((note << 5) & 0xe0) | (instrument & 0x1f);
+        out->data[2] = 0;
+        return 2;
+    }
+
+    // command only
+    if (!note && !instrument && has_command)
+    {
+        // o110cccc bbbbbbbb		Only command
+        out->data[0] = CHANNEL_COMMAND | (effect.cmd & 0x0f);
+        out->data[1] = effect.data.value;
+        out->data[2] = 0;
+        return 2;
+    }
+
+    // note + instrument + command
+    // onnnnnni iiiicccc bbbbbbbb
+
+    out->data[0] = CHANNEL_ALL | ((note << 1) & 0x7e) | ((instrument >> 4) & 0x01);
+    out->data[1] = ((instrument << 4) & 0xf0) | (effect.cmd & 0x0f);
+    out->data[2] = effect.data.value;
+    return 3;
+}
+
+static size_t build_channel_entries(player61a_channel_t* channel, const protracker_pattern_t* pattern, size_t channel_index, uint32_t* usecode)
+{
+    for (size_t i = 0; i < PT_PATTERN_ROWS; ++i)
+    {
+        const protracker_pattern_row_t* row = &(pattern->rows[i]);
+        const protracker_channel_t* in = &(row->channels[channel_index]);
+
+        player61a_channel_t out;
+        size_t size = convert_channel(&out, in, row, channel_index, usecode);
+
+        bool has_break = false;
+        for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
+        {
+
+        }
+    }
+    return PT_PATTERN_ROWS;
+}
+
+static void build_patterns(player61a_t* output, const protracker_t* input, const char* options, uint32_t* usecode)
+{
+    LOG_DEBUG("Converting patterns...\n");
+
+    output->header.num_patterns = input->num_patterns;
+
+    output->song.length = input->song.length;
+    memcpy(output->song.positions, input->song.positions, sizeof(uint8_t) * PT_NUM_POSITIONS);
+
+    output->pattern_offsets = malloc(input->num_patterns * sizeof(player61a_pattern_offset_t));
+    memset(output->pattern_offsets, 0, input->num_patterns * sizeof(player61a_pattern_offset_t));
+
+    for (size_t i = 0; i < input->num_patterns; ++i)
+    {
+        for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
+        {
+            player61a_channel_t channel[PT_PATTERN_ROWS];
+            size_t length = build_channel_entries(channel, &(input->patterns[i]), j, usecode);
+        }
+    }
+}
+
+static void player61a_create(player61a_t* module)
+{
+    memset(module, 0, sizeof(player61a_t));
+
+    buffer_init(&(module->patterns), 1);
+    buffer_init(&(module->samples), 1);
+}
+
+static void player61a_destroy(player61a_t* module)
+{
+    free(module->pattern_offsets);
+
+    buffer_release(&(module->patterns));
+    buffer_release(&(module->samples));
+}
+
+#if 0
+
+static int8_t deltas[] = {
+    0,1,2,4,8,16,32,64,128,-64,-32,-16,-8,-4,-2,-1
+};
 
 #endif
 
@@ -236,9 +344,10 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
 
     player61a_t temp;
     player61a_create(&temp);
+    uint32_t usecode = 0;
 
     build_samples(&temp, module, options);
-    build_patterns(&temp, module, options);
+    build_patterns(&temp, module, options, &usecode);
 
     if (has_option(options, "song", true))
     {

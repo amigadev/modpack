@@ -19,30 +19,31 @@
 #define PT_CMD_CONTINUE_SLIDE   (5)
 #define PT_CMD_CONTINUE_VIBRATO (6)
 #define PT_CMD_TREMOLO          (7)
+#define PT_CMD_8                (8)
 #define PT_CMD_SET_SAMPLE_OFS   (9)
 #define PT_CMD_VOLUME_SLIDE     (10)
 #define PT_CMD_POS_JUMP         (11)
 #define PT_CMD_SET_VOLUME       (12)
-#define PT_PATTERN_BREAK        (13)
+#define PT_CMD_PATTERN_BREAK    (13)
 #define PT_CMD_EXTENDED         (14) // Extended command
 #define PT_CMD_SET_SPEED        (15)
 
-#define PT_EXTCMD_FILTER                    (0)
-#define PT_EXTCMD_FINESLIDE_UP              (1)
-#define PT_EXTCMD_FINESLIDE_DOWN            (2)
-#define PT_EXTCMD_SET_GLISSANDO             (3)
-#define PT_EXTCMD_SET_VIBRATO_WAVEFORM      (4)
-#define PT_EXTCMD_SET_FINETUNE_VALUE        (5)
-#define PT_EXTCMD_LOOP_PATTERN              (6)
-#define PT_EXTCMD_SET_TREMOLO_WAVEFORM      (7)
-#define PT_EXTCMD_SYNC                      (8) // Unused, but value can be accessed through the replayer routine
-#define PT_EXTCMD_RETRIGGER_SAMPLE          (9)
-#define PT_EXTCMD_FINE_VOLUME_SLIDE_UP      (10)
-#define PT_EXTCMD_FINE_VOLUME_SLIDE_DOWN    (11)
-#define PT_EXTCMD_CUT_SAMPLE                (12)
-#define PT_EXTCMD_DELAY_SAMPLE              (13)
-#define PT_EXTCMD_DELAY_PATTERN             (14)
-#define PT_EXTCMD_INVERT_LOOP               (15)
+#define PT_ECMD_FILTER                  (0)
+#define PT_ECMD_FINESLIDE_UP            (1)
+#define PT_ECMD_FINESLIDE_DOWN          (2)
+#define PT_ECMD_SET_GLISSANDO           (3)
+#define PT_ECMD_SET_VIBRATO_WAVEFORM    (4)
+#define PT_ECMD_SET_FINETUNE_VALUE      (5)
+#define PT_ECMD_LOOP_PATTERN            (6)
+#define PT_ECMD_SET_TREMOLO_WAVEFORM    (7)
+#define PT_ECMD_E8                      (8)
+#define PT_ECMD_RETRIGGER_SAMPLE        (9)
+#define PT_ECMD_FINE_VOLUME_SLIDE_UP    (10)
+#define PT_ECMD_FINE_VOLUME_SLIDE_DOWN  (11)
+#define PT_ECMD_CUT_SAMPLE              (12)
+#define PT_ECMD_DELAY_SAMPLE            (13)
+#define PT_ECMD_DELAY_PATTERN           (14)
+#define PT_ECMD_INVERT_LOOP             (15)
 
 typedef struct __attribute__((__packed__))
 {
@@ -69,18 +70,24 @@ typedef struct __attribute__((__packed__))
 typedef struct __attribute__((__packed__))
 {
     uint8_t data[4];
-} protracker_note_t;
+} protracker_channel_t;
 
 typedef struct
 {
-    uint8_t high:4;
-    uint8_t middle:4;
-    uint8_t low:4;
+    uint8_t cmd:4;
+
+    union {
+        struct {
+            uint8_t value:4;
+            uint8_t cmd:4;
+        } ext;
+        uint8_t value;
+    } data;
 } protracker_effect_t;
 
 typedef struct __attribute__((__packed__))
 {
-    protracker_note_t channels[PT_NUM_CHANNELS];
+    protracker_channel_t channels[PT_NUM_CHANNELS];
 } protracker_pattern_row_t;
 
 typedef struct __attribute__((__packed__))
@@ -105,11 +112,12 @@ protracker_t* protracker_load(const char* filename);
 bool protracker_convert(buffer_t* buffer, const protracker_t* module, const char* opts);
 void protracker_free(protracker_t* module);
 
-uint8_t protracker_get_sample(const protracker_note_t* note);
-uint16_t protracker_get_period(const protracker_note_t* note);
-protracker_effect_t protracker_get_effect(const protracker_note_t* note);
+uint8_t protracker_get_sample(const protracker_channel_t* channel);
+uint16_t protracker_get_period(const protracker_channel_t* channel);
+protracker_effect_t protracker_get_effect(const protracker_channel_t* channel);
 
-void protracker_set_sample(protracker_note_t* note, uint8_t sample);
+void protracker_set_sample(protracker_channel_t* channel, uint8_t sample);
+void protracker_set_effect(protracker_channel_t* channel, const protracker_effect_t* effect);
 
 /**
  *
@@ -172,19 +180,19 @@ void protracker_trim_samples(protracker_t* module);
  * Clean effects, removing unnecessary effects and downgrading them to simpler variations
  *
 **/
-void protracker_clean_effects(protracker_t* module);
+void protracker_clean_effects(protracker_t* module, const char* options);
 
 /**
  *
  * Pattern iterator to simplify transforming protracker pattern data
  *
 **/
-void protracker_transform_notes(protracker_t* module, void (*transform)(protracker_note_t*, uint8_t channel, void* data), void* data);
+void protracker_transform_notes(protracker_t* module, void (*transform)(protracker_channel_t* channel, uint8_t index, void* data), void* data);
 
 /**
  *
  * Pattern iterator to simplify scanning protracker pattern data
  *
 **/
-void protracker_scan_notes(const protracker_t* module, void (*scan)(const protracker_note_t*, uint8_t channel, void* data), void* data);
+void protracker_scan_notes(const protracker_t* module, void (*scan)(const protracker_channel_t* channel, uint8_t index, void* data), void* data);
 
