@@ -44,8 +44,8 @@ Specifying `-` as name will read data from standard input.
                         sign                    Add signature ('P61A') (default: disabled)
                         4bit[=RANGE]            4-bit compression (lossy) (default: disabled)
                         delta                   Delta encoding (default: disabled)
-                        [-]samples              Write sample data to output (default: enabled)
                         [-]song                 Write song data to output (default: enabled)
+                        [-]samples              Write sample data to output (default: enabled)
 
                         Range examples:
                         [1]                     Apply to sample 1 

@@ -113,28 +113,28 @@ void protracker_set_sample(protracker_note_t* note, uint8_t sample);
 
 /**
  *
- * Get sample usage in song
+ * Get sample usage in tune
  *
- * song - ProTracker song
+ * module - ProTracker module
  * usage - Usage table (must allow for PT_NUM_SAMPLES entries)
  *
  * Returns number of active samples
  *
 **/
-size_t protracker_get_used_samples(const protracker_t* song, bool* usage);
+size_t protracker_get_used_samples(const protracker_t* module, bool* usage);
 
 /**
  *
  * module - ProTracker module
  *
- * returns number of patterns used in song
+ * returns number of patterns used in module
  *
 **/
 size_t protracker_get_pattern_count(const protracker_t* module);
 
 /**
  *
- * Remove patterns that are not included in the song
+ * Remove patterns that are not included in the module
  *
 **/
 void protracker_remove_unused_patterns(protracker_t* module);

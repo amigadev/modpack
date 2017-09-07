@@ -67,6 +67,12 @@ typedef struct __attribute__((__packed__))
 
 typedef struct
 {
+    size_t length;
+    uint8_t positions[PT_NUM_POSITIONS];
+} player61a_song_t;
+
+typedef struct
+{
 } player61a_note_t;
 
 typedef struct
@@ -77,6 +83,8 @@ typedef struct
 
     player61a_header_t header;
     player61a_sample_t sample_headers[PT_NUM_SAMPLES];
+
+    player61a_song_t song;
 
     player61a_pattern_offset_t* pattern_offsets;
 

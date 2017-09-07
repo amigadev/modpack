@@ -80,17 +80,20 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
     output->header.sample_count = (uint8_t)sample_count;
 }
 
-static void build_patterns(player61a_t* output, const protracker_t* module, const char* options)
+static void build_patterns(player61a_t* output, const protracker_t* input, const char* options)
 {
-    output->header.num_patterns = module->num_patterns;
+    output->header.num_patterns = input->num_patterns;
 
-    output->pattern_offsets = malloc(module->num_patterns * sizeof(player61a_pattern_offset_t));
-    memset(output->pattern_offsets, 0, module->num_patterns * sizeof(player61a_pattern_offset_t));
+    output->song.length = input->song.length;
+    memcpy(output->song.positions, input->song.positions, sizeof(uint8_t) * PT_NUM_POSITIONS);
+
+    output->pattern_offsets = malloc(input->num_patterns * sizeof(player61a_pattern_offset_t));
+    memset(output->pattern_offsets, 0, input->num_patterns * sizeof(player61a_pattern_offset_t));
 }
 
-static void player61a_destroy(const player61a_t* song)
+static void player61a_destroy(const player61a_t* module)
 {
-    free(song->pattern_offsets);
+    free(module->pattern_offsets);
 }
 
 #if 0
@@ -143,15 +146,8 @@ static uint8_t get_period_index(uint16_t period)
 
 #endif
 
-bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char* options)
+static void write_song(buffer_t* buffer, const player61a_t* module, const char* options)
 {
-    LOG_INFO("Converting to The Player 6.1A...\n");
-
-    player61a_t temp = { 0 };
-
-    build_samples(&temp, module, options);
-    build_patterns(&temp, module, options);
-
     if (has_option(options, "sign", false))
     {
         LOG_TRACE(" - Adding signature.\n");
@@ -163,18 +159,18 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
     {
         player61a_header_t header;
 
-        header.sample_offset = htons(temp.header.sample_offset);
-        header.num_patterns = temp.header.num_patterns;
-        header.sample_count = temp.header.sample_count;
+        header.sample_offset = htons(module->header.sample_offset);
+        header.num_patterns = module->header.num_patterns;
+        header.sample_count = module->header.sample_count;
 
         buffer_add(buffer, &header, sizeof(header));
     }
 
     // sample headers
 
-    for (size_t i = 0; i < temp.header.sample_count; ++i)
+    for (size_t i = 0; i < module->header.sample_count; ++i)
     {
-        const player61a_sample_t* in = &(temp.sample_headers[i]);
+        const player61a_sample_t* in = &(module->sample_headers[i]);
         player61a_sample_t sample;
 
         sample.length = htons(in->length);
@@ -187,24 +183,50 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
 
     // pattern offsets
 
-    for (size_t i = 0; i < temp.header.num_patterns; ++i)
+    for (size_t i = 0; i < module->header.num_patterns; ++i)
     {
         player61a_pattern_offset_t offset;
         for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
         {
-            offset.channels[j] = htons(temp.pattern_offsets[i].channels[j]);
+            offset.channels[j] = htons(module->pattern_offsets[i].channels[j]);
         }
 
         buffer_add(buffer, &offset, sizeof(offset));
     }
 
-    // song positions
+    // tune positions
 
     {
         buffer_add(buffer, module->song.positions, module->song.length);
 
         uint8_t temp = 0xff;
         buffer_add(buffer, &temp, sizeof(temp));
+    }
+}
+
+static void write_samples(buffer_t* buffer, const player61a_t* module)
+{
+}
+
+bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char* options)
+{
+    LOG_INFO("Converting to The Player 6.1A...\n");
+
+    player61a_t temp = { 0 };
+
+    build_samples(&temp, module, options);
+    build_patterns(&temp, module, options);
+
+    if (has_option(options, "song", true))
+    {
+        LOG_DEBUG(" - Writing song data...\n");
+        write_song(buffer, &temp, options);
+    }
+
+    if (has_option(options, "samples", true))
+    {
+        LOG_DEBUG(" - Writing sample data...\n");
+        write_samples(buffer, &temp);
     }
 
     player61a_destroy(&temp);

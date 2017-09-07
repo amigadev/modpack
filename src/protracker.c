@@ -172,7 +172,7 @@ protracker_t* protracker_load(const char* filename)
             break;
         }
 
-        // Song
+        // Tune
 
         memcpy(&module.song, curr, sizeof(protracker_song_t));
         curr += sizeof(protracker_song_t);
@@ -392,12 +392,12 @@ void sample_usage_filter(const protracker_note_t* note, uint8_t channel, void* d
     }
 }
 
-size_t protracker_get_used_samples(const protracker_t* song, bool* usage)
+size_t protracker_get_used_samples(const protracker_t* module, bool* usage)
 {
     memset(usage, 0, sizeof(bool) * PT_NUM_SAMPLES);
 
     sample_usage_data usage_data = { usage };
-    protracker_scan_notes(song, sample_usage_filter, &usage_data);
+    protracker_scan_notes(module, sample_usage_filter, &usage_data);
 
     size_t count = 0;
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
