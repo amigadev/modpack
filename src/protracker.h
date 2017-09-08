@@ -120,6 +120,7 @@ uint16_t protracker_get_period(const protracker_channel_t* channel);
 protracker_effect_t protracker_get_effect(const protracker_channel_t* channel);
 
 void protracker_set_sample(protracker_channel_t* channel, uint8_t sample);
+void protracker_set_period(protracker_channel_t* channel, uint16_t period);
 void protracker_set_effect(protracker_channel_t* channel, const protracker_effect_t* effect);
 
 /**
@@ -199,3 +200,13 @@ void protracker_transform_notes(protracker_t* module, void (*transform)(protrack
 **/
 void protracker_scan_notes(const protracker_t* module, void (*scan)(const protracker_channel_t* channel, uint8_t index, void* data), void* data);
 
+/**
+ *
+ * Build a text string out of a protracker channel
+ *
+ * channel - Channel to print
+ * out - Output buffer
+ * buflen - Buffer size
+ *
+**/
+void protracker_channel_to_text(const protracker_channel_t* channel, char *out, size_t buflen);

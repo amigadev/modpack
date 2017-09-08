@@ -115,6 +115,15 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
 #define CHANNEL_COMMAND         (0x60)
 #define CHANNEL_NOTE_INSTRUMENT (0x70)
 #define CHANNEL_EMPTY           (0x7f)
+#define CHANNEL_COMPRESSED      (0x80)
+
+#define COMPRESSION_CMD_BITS    (0xc0)
+#define COMPRESSION_DATA_BITS   (0x3f)
+
+#define COMPRESSION_EMPTY_ROWS  (0x00)  // Next N rows are empty
+#define COMPRESSION_REPEAT_ROWS (0x80)  // Repeat this row N times
+#define COMPRESSION_SHORT_JUMP  (0x40)  // 8-bit jump
+#define COMPRESSION_LONG_JUMP   (0xc0)  // 16-bit jump
 
 static uint16_t periods[] = {
     856,808,762,720,678,640,604,570,538,508,480,453,    // octave 1
@@ -122,7 +131,7 @@ static uint16_t periods[] = {
     214,202,190,180,170,160,151,143,135,127,120,113     // octave 3
 };
 
-static uint8_t get_note_index(uint16_t period)
+static uint8_t index_from_period(uint16_t period)
 {
     for (size_t i = 0; i < (sizeof(periods) / sizeof(uint16_t)); ++i)
     {
@@ -132,6 +141,16 @@ static uint8_t get_note_index(uint16_t period)
         }
     }
     return 0;
+}
+
+static uint16_t period_from_index(uint8_t index)
+{
+    if (!index || index > (sizeof(periods) / sizeof(uint16_t)))
+    {
+        return 0;
+    }
+
+    return periods[index-1];
 }
 
 typedef struct
@@ -174,13 +193,13 @@ static size_t get_channel_length(const p61a_channel_t* channel)
     return 3;
 }
 
-static size_t convert_channel(p61a_channel_t* out, const protracker_channel_t* in, const protracker_pattern_row_t* row, size_t channel_index, uint32_t* usecode)
+static size_t to_p61a_channel(p61a_channel_t* out, const protracker_channel_t* in, const protracker_pattern_row_t* row, size_t channel_index, uint32_t* usecode)
 {
     uint8_t instrument = protracker_get_sample(in);
     uint16_t period = protracker_get_period(in);
     protracker_effect_t effect = protracker_get_effect(in);
 
-    uint8_t note = get_note_index(period);
+    uint8_t note = index_from_period(period);
 
     bool has_command = (effect.cmd + effect.data.value) != 0;
     switch (effect.cmd)
@@ -306,6 +325,54 @@ static size_t convert_channel(p61a_channel_t* out, const protracker_channel_t* i
     return 3;
 }
 
+static bool to_protracker_channel(protracker_channel_t* out, const p61a_channel_t* in)
+{
+    memset(out, 0, sizeof(protracker_channel_t));
+
+    // CHANNEL_EMPTY
+    if ((in->data[0] & CHANNEL_EMPTY) == CHANNEL_EMPTY)
+    {
+        return true;
+    }
+
+    // CHANNEL_NOTE_INSTRUMENT - o1110nnn nnniiiii
+    if ((in->data[0] & CHANNEL_NOTE_INSTRUMENT) == CHANNEL_NOTE_INSTRUMENT)
+    {
+        uint8_t note = ((in->data[0] & 0x07) << 3) | ((in->data[1] & 0xe0) >> 5);
+        uint8_t sample = in->data[1] & 0x1f;
+
+        protracker_set_period(out, period_from_index(note));
+        protracker_set_sample(out, sample);
+        return true;
+    }
+
+    // CHANNEL_COMMAND - o110cccc bbbbbbbb
+    if ((in->data[0] & CHANNEL_COMMAND) == CHANNEL_COMMAND)
+    {
+        protracker_effect_t effect;
+        effect.cmd = in->data[0] & 0x0f;
+        effect.data.value = in->data[1];
+
+        protracker_set_effect(out, &effect);
+        return true;
+    }
+
+    // CHANNEL_ALL - onnnnnni iiiicccc bbbbbbbb
+    {
+        uint8_t note = (in->data[0] & 0x7e) >> 1;
+        uint8_t sample = ((in->data[0] & 0x01) << 4) | ((in->data[1] & 0xf0) >> 4);
+
+        protracker_effect_t effect;
+        effect.cmd = in->data[1] & 0x0f;
+        effect.data.value = in->data[2];
+
+        protracker_set_period(out, period_from_index(note));
+        protracker_set_sample(out, sample);
+        protracker_set_effect(out, &effect);
+        return true;
+    }
+}
+
 static size_t build_track(p61a_channel_t* channel, const protracker_pattern_t* pattern, size_t channel_index, uint32_t* usecode)
 {
     for (size_t i = 0; i < PT_PATTERN_ROWS; ++i)
@@ -313,8 +380,7 @@ static size_t build_track(p61a_channel_t* channel, const protracker_pattern_t* p
         const protracker_pattern_row_t* row = &(pattern->rows[i]);
         const protracker_channel_t* in = &(row->channels[channel_index]);
 
-        p61a_channel_t out;
-        size_t size = convert_channel(&out, in, row, channel_index, usecode);
+        to_p61a_channel(&(channel[i]), in, row, channel_index, usecode);
     }
     return PT_PATTERN_ROWS;
 }
@@ -349,7 +415,7 @@ static void build_patterns(player61a_t* output, const protracker_t* input, const
                 buffer_add(&(output->patterns), channel, get_channel_length(channel));
             }
 
-            LOG_TRACE("CH %lu,%lu: %lu\n", i, j, buffer_count(&(output->patterns)) - offset);
+//            LOG_TRACE("CH %lu,%lu: %lu\n", i, j, buffer_count(&(output->patterns)) - offset);
         }
     }
 }
@@ -485,9 +551,10 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
     return true;
 }
 
-static const uint8_t* read_sample_headers(p61a_sample_t* sample_headers, const p61a_header_t* header, const uint8_t* curr, const uint8_t* max)
+static const uint8_t* read_sample_headers(p61a_sample_t* sample_headers, size_t sample_count, const uint8_t* curr, const uint8_t* max)
 {
-    for (size_t i = 0; i < header->sample_count; ++i)
+    LOG_TRACE("Samples:\n");
+    for (size_t i = 0; i < sample_count; ++i)
     {
         if ((max - curr) < sizeof(p61a_sample_t))
         {
@@ -518,9 +585,10 @@ static const uint8_t* read_sample_headers(p61a_sample_t* sample_headers, const p
     return curr;
 }
 
-static const uint8_t* read_pattern_offsets(p61a_pattern_offset_t* pattern_offsets, const p61a_header_t* header, const uint8_t* curr, const uint8_t* max)
+static const uint8_t* read_pattern_offsets(p61a_pattern_offset_t* pattern_offsets, size_t pattern_count, const uint8_t* curr, const uint8_t* max)
 {
-    for (size_t i = 0; i < header->pattern_count; ++i)
+    LOG_TRACE("Pattern Offsets:\n");
+    for (size_t i = 0; i < pattern_count; ++i)
     {
         if ((max - curr) < sizeof(p61a_pattern_offset_t))
         {
@@ -547,7 +615,7 @@ static const uint8_t* read_pattern_offsets(p61a_pattern_offset_t* pattern_offset
 
 static const uint8_t* read_song_positions(p61a_song_t* song, const uint8_t* curr, const uint8_t* max)
 {
-    LOG_TRACE(" ");
+    LOG_TRACE("Song Positions:\n ");
     for (size_t i = 0; i < PT_NUM_POSITIONS; ++i)
     {
         if ((max - curr) < sizeof(uint8_t))
@@ -572,10 +640,113 @@ static const uint8_t* read_song_positions(p61a_song_t* song, const uint8_t* curr
     return curr;
 }
 
+static const uint8_t* read_patterns(p61a_pattern_t* patterns, p61a_pattern_offset_t* pattern_offsets, size_t pattern_count, const uint8_t* curr, const uint8_t* max)
+{
+    for (size_t i = 0; i < pattern_count; ++i)
+    {
+        p61a_pattern_t* pattern = &(patterns[i]);
+        const p61a_pattern_offset_t* offsets = &(pattern_offsets[i]);
+
+        for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
+        {
+            size_t current_row = 0;
+            const uint8_t* track = curr + offsets->channels[j];
+
+            LOG_TRACE("Pattern #%lu, Track #%lu:\n", i, j);
+
+            while (current_row < PT_PATTERN_ROWS)
+            {
+                size_t clen = get_channel_length((const p61a_channel_t*)track);
+
+                switch (clen)
+                {
+                    case 1:
+                    {
+                        LOG_TRACE("1 %02x      ", *(track+0));
+                    }
+                    break;
+
+                    case 2:
+                    {
+                        LOG_TRACE("2 %02x%02x    ", *(track+0), *(track+1));
+                    }
+                    break;
+
+                    case 3:
+                    {
+                        LOG_TRACE("3 %02x%02x%02x  ", *(track+0), *(track+1), *(track+2));
+                    }
+                    break;
+                }
+
+                protracker_channel_t ptc;
+                to_protracker_channel(&ptc, (const p61a_channel_t*)track);
+                char buf[32];
+                protracker_channel_to_text(&ptc, buf, sizeof(buf));
+
+                LOG_TRACE("%s\n", buf);
+
+                if (*track & CHANNEL_COMPRESSED)
+                {
+                    LOG_TRACE("COMPRESSION %02x %02x %02x\n", *(track+1), *(track+2), *(track+3));
+
+                    const uint8_t cmd = *(track+1);
+
+                    switch (cmd & COMPRESSION_CMD_BITS)
+                    {
+                        case COMPRESSION_EMPTY_ROWS:
+                        {
+                            LOG_TRACE("EMPTY ROWS\n");
+                        }
+                        break;
+
+                        case COMPRESSION_REPEAT_ROWS:
+                        {
+                            LOG_TRACE("REPEAT ROWS\n");
+                        }
+                        break;
+
+                        case COMPRESSION_SHORT_JUMP:
+                        {
+                            uint8_t rows = cmd & COMPRESSION_DATA_BITS;
+                            uint8_t offset = *(track+2);
+
+                            LOG_TRACE("SHORT JUMP %u %u\n", rows, offset);
+                        }
+                        break;
+
+                        case COMPRESSION_LONG_JUMP:
+                        {
+                            uint8_t rows = cmd & COMPRESSION_DATA_BITS;
+                            uint16_t offset = ntohs((*(track+2) << 8)|(*(track+3)));
+
+                            LOG_TRACE("LONG JUMP %u %u\n", rows, offset);
+                        }
+                        break;
+                    }
+
+                    return NULL;
+                }
+                else
+                {
+                    ++ current_row;
+                    track += clen;
+                }
+            }
+
+            return NULL;
+        }
+    }
+
+    return NULL;
+}
+
 
 protracker_t* player61a_load(const buffer_t* buffer)
 {
     LOG_DEBUG("Loading Player 6.1A module...\n");
+
+    p61a_pattern_t* patterns = NULL;
 
     protracker_t module;
     protracker_create(&module);
@@ -626,34 +797,42 @@ protracker_t* player61a_load(const buffer_t* buffer)
 
         // sample headers
 
-        LOG_TRACE("Samples:\n");
         p61a_sample_t sample_headers[header.sample_count];
-        if (!(curr = read_sample_headers(sample_headers, &header, curr, max)))
+        if (!(curr = read_sample_headers(sample_headers, header.sample_count, curr, max)))
         {
             break;
         }
 
         // pattern offsets
 
-        LOG_TRACE("Pattern Offsets:\n");
-
         p61a_pattern_offset_t pattern_offsets[header.pattern_count];
-        if (!(curr = read_pattern_offsets(pattern_offsets, &header, curr, max)))
+        if (!(curr = read_pattern_offsets(pattern_offsets, header.pattern_count, curr, max)))
         {
             break;
         }
 
         // song positions
 
-        LOG_TRACE("Song Positions:\n");
         p61a_song_t song = { 0 };
         if (!(curr = read_song_positions(&song, curr, max)))
         {
             break;
         }
+
+        // patterns
+
+        p61a_pattern_t* patterns = malloc(sizeof(p61a_pattern_t) * header.pattern_count);
+        memset(patterns, 0, sizeof(p61a_pattern_t) * header.pattern_count);
+        if (!(curr = read_patterns(patterns, pattern_offsets, header.pattern_count, curr, max)))
+        {
+            break;
+        }
+
+        // samples
     }
     while (false);
 
+    free(patterns);
     protracker_destroy(&module);
 
     return NULL;

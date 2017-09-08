@@ -21,7 +21,7 @@ static char* notes[] = {
     "C-","C#","D-","D#","E-","F-","F#","G-","G#","A-","A#","B-"
 };
 
-void build_note(const protracker_channel_t* channel, char* out)
+void protracker_channel_to_text(const protracker_channel_t* channel, char* out, size_t buflen)
 {
     uint8_t sample = protracker_get_sample(channel);
     uint16_t period = protracker_get_period(channel);
@@ -35,17 +35,17 @@ void build_note(const protracker_channel_t* channel, char* out)
             {
                 if (octaves[i][j] == period)
                 {
-                    sprintf(out, "%s%ld%02X%1X%1X%1X", notes[j], i, sample, effect.cmd, effect.data.ext.cmd, effect.data.ext.value);
+                    snprintf(out, buflen, "%s%ld%02X%1X%1X%1X", notes[j], i, sample, effect.cmd, effect.data.ext.cmd, effect.data.ext.value);
                     return;
                 }
             }
         }
 
-        sprintf(out, "???%02X%1X%1X%1X", sample, effect.cmd, effect.data.ext.cmd, effect.data.ext.value);
+        snprintf(out, buflen, "???%02X%1X%1X%1X", sample, effect.cmd, effect.data.ext.cmd, effect.data.ext.value);
     }
     else
     {
-        sprintf(out, "---%02X%1X%1X%1X", sample, effect.cmd, effect.data.ext.cmd, effect.data.ext.value);
+        snprintf(out, buflen, "---%02X%1X%1X%1X", sample, effect.cmd, effect.data.ext.cmd, effect.data.ext.value);
     }
 }
 
@@ -53,9 +53,9 @@ static void process_sample_header(protracker_sample_t* sample, const uint8_t* in
 {
     memcpy(sample, in, sizeof(protracker_sample_t));
 
-    sample->length = htons(sample->length);
-    sample->repeat_offset = htons(sample->repeat_offset);
-    sample->repeat_length = htons(sample->repeat_length);
+    sample->length = ntohs(sample->length);
+    sample->repeat_offset = ntohs(sample->repeat_offset);
+    sample->repeat_length = ntohs(sample->repeat_length);
 
     char sample_name[sizeof(sample->name)+1];
     memset(sample_name, 0, sizeof(sample_name));
@@ -213,7 +213,7 @@ protracker_t* protracker_load(const buffer_t* buffer)
 
                     char channel_string[32];
 
-                    build_note(channel, channel_string);
+                    protracker_channel_to_text(channel, channel_string, sizeof(channel_string));
 
                     LOG_TRACE(" %s", channel_string);
                 }
@@ -342,7 +342,7 @@ uint8_t protracker_get_sample(const protracker_channel_t* channel)
 
 uint16_t protracker_get_period(const protracker_channel_t* channel)
 {
-    return ((channel->data[0] & 15) << 8) + channel->data[1];
+    return ((channel->data[0] & 0x0f) << 8) + channel->data[1];
 }
 
 protracker_effect_t protracker_get_effect(const protracker_channel_t* channel)
@@ -359,6 +359,12 @@ void protracker_set_sample(protracker_channel_t* channel, uint8_t sample)
 {
     channel->data[0] = (channel->data[0] & 0x0f) | (sample & 0x10);
     channel->data[2] = (channel->data[2] & 0x0f) | ((sample & 0x0f) << 4);
+}
+
+void protracker_set_period(protracker_channel_t* channel, uint16_t period)
+{
+    channel->data[0] = (channel->data[0] & 0xf0) | ((period & 0x0f00) >> 8);
+    channel->data[1] = period & 0x00ff;
 }
 
 void protracker_set_effect(protracker_channel_t* channel, const protracker_effect_t* effect)
