@@ -101,11 +101,18 @@ int main(int argc, char* argv[])
 
                 LOG_INFO("Writing result to '%s'...", filename);
 
-                fp = fopen(filename, "wb");
-                if (!fp)
+                if (!strcmp(filename, "-"))
                 {
-                    LOG_INFO("failed to open '%s' for writing.\n", filename);
-                    break;
+                    fp = stdout;
+                }
+                else
+                {
+                    fp = fopen(filename, "wb");
+                    if (!fp)
+                    {
+                        LOG_INFO("failed to open '%s' for writing.\n", filename);
+                        break;
+                    }
                 }
 
                 size_t size = buffer_count(&buffer);
@@ -120,7 +127,7 @@ int main(int argc, char* argv[])
             }
             while (0);
 
-            if (fp)
+            if (fp && (fp != stdout))
             {
                 fclose(fp);
             }
