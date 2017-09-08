@@ -46,7 +46,14 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
         }
 
         uint16_t length;
-        if (input->repeat_length > 1)
+        if (!input->length)
+        {
+            sample->length = 1;
+            sample->finetone = 0;
+            sample->volume = 0;
+            sample->repeat_offset = 0xffff;
+        }
+        else if (input->repeat_length > 1)
         {
             // looping
 
@@ -78,7 +85,15 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
 
         // TODO: compression / delta encoding
 
-        buffer_add(&(output->samples), module->sample_data[i], length * 2);
+        if (input->length > 0)
+        {
+            buffer_add(&(output->samples), module->sample_data[i], length * 2);
+        }
+        else
+        {
+            uint16_t temp = 0;
+            buffer_add(&(output->samples), &temp, sizeof(temp));
+        }
     }
 
     LOG_DEBUG(" %lu samples used.\n", sample_count);
@@ -159,24 +174,23 @@ typedef struct
     size_t samples;
 } p61a_offsets_t;
 
-static p61a_offsets_t get_module_offsets(const player61a_t* module)
+static size_t get_sample_offset(const player61a_t* module)
 {
-    p61a_offsets_t offsets;
-
     size_t curr = 0;
 
     curr += sizeof(p61a_header_t);   // header
     curr += sizeof(p61a_sample_t) * module->header.sample_count; // sample headers
     curr += sizeof(p61a_pattern_offset_t) * module->header.pattern_count; // pattern offsets
-    curr += module->song.length; // song positions
-
-    offsets.patterns = curr;
+    curr += module->song.length+1; // song positions (+0xff)
 
     curr += buffer_count(&(module->patterns)); // tracks
 
-    offsets.samples = curr;
+    if (curr & 1)
+    {
+        ++curr;
+    }
 
-    return offsets;
+    return curr;
 }
 
 static size_t get_channel_length(const p61a_channel_t* channel)
@@ -452,14 +466,12 @@ static void write_song(buffer_t* buffer, const player61a_t* module, const char* 
         buffer_add(buffer, signature, strlen(signature));
     }
 
-    p61a_offsets_t offsets = get_module_offsets(module);
-
     // header
 
     {
         p61a_header_t header;
 
-        header.sample_offset = htons(offsets.samples);
+        header.sample_offset = htons(get_sample_offset(module));
         header.pattern_count = module->header.pattern_count;
         header.sample_count = module->header.sample_count;
 
@@ -473,10 +485,22 @@ static void write_song(buffer_t* buffer, const player61a_t* module, const char* 
         const p61a_sample_t* in = &(module->sample_headers[i]);
         p61a_sample_t sample;
 
-        sample.length = htons(in->length);
-        sample.finetone = in->finetone;
-        sample.volume = in->volume;
-        sample.repeat_offset = htons(in->repeat_offset);
+        bool empty = in->length == 0;
+
+        if (!empty)
+        {
+            sample.length = htons(in->length);
+            sample.finetone = in->finetone;
+            sample.volume = in->volume;
+            sample.repeat_offset = htons(in->repeat_offset);
+        }
+        else
+        {
+            sample.length = htons(1);
+            sample.finetone = 0;
+            sample.volume = 0;
+            sample.repeat_offset = htons(0xffff);
+        }
 
         buffer_add(buffer, &sample, sizeof(sample));
     }
@@ -509,6 +533,14 @@ static void write_song(buffer_t* buffer, const player61a_t* module, const char* 
     if (pattern_size)
     {
         buffer_add(buffer, buffer_get(&(module->patterns), 0), pattern_size);
+    }
+
+    // align samples
+
+    if (buffer_count(buffer) & 1)
+    {
+        uint8_t c = 0;
+        buffer_add(buffer, &c, 1);
     }
 }
 
@@ -820,15 +852,29 @@ protracker_t* player61a_load(const buffer_t* buffer)
         }
 
         // patterns
-
+/*
         p61a_pattern_t* patterns = malloc(sizeof(p61a_pattern_t) * header.pattern_count);
         memset(patterns, 0, sizeof(p61a_pattern_t) * header.pattern_count);
         if (!(curr = read_patterns(patterns, pattern_offsets, header.pattern_count, curr, max)))
         {
             break;
         }
-
+*/
         // samples
+
+        const uint8_t* samples = raw + header.sample_offset;
+
+        LOG_TRACE("%p %p\n", samples, max);
+
+        for (size_t i = 0; samples < max; ++i, ++samples)
+        {
+            if ((i & 31) == 0)
+            {
+                LOG_TRACE("\n%p: ", samples);
+            }
+
+            LOG_TRACE("%02x", *samples);
+        }
     }
     while (false);
 
