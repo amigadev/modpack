@@ -28,7 +28,7 @@
 
 static const char* signature = "P61A";
 
-static void build_samples(player61a_t* output, const protracker_t* module, const char* options)
+static void build_samples(player61a_t* output, const protracker_t* module, const char* options, uint32_t* usecode)
 {
     LOG_DEBUG("Building sample table:\n");
 
@@ -48,6 +48,8 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
         uint16_t length;
         if (!input->length)
         {
+            // empty
+
             sample->length = 1;
             sample->finetone = 0;
             sample->volume = 0;
@@ -81,6 +83,11 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
             sample->finetone = input->finetone;
             sample->volume = input->volume > 64 ? 64 : input->volume;
             sample->repeat_offset = 0xffff;
+        }
+
+        if (sample->finetone)
+        {
+            *usecode |= 1; // mark finetones used in usecode
         }
 
         // TODO: compression / delta encoding
@@ -250,7 +257,7 @@ static size_t to_p61a_channel(p61a_channel_t* out, const protracker_channel_t* i
         }
         break;
 
-        case PT_CMD_8:
+        case PT_CMD_8:  // 8xy -> E8y
         {
             effect.cmd = PT_CMD_EXTENDED;
             effect.data.ext.cmd = PT_ECMD_E8;
@@ -293,13 +300,15 @@ static size_t to_p61a_channel(p61a_channel_t* out, const protracker_channel_t* i
         break;
     }
 
-    if (!has_command)
+    if (has_command)
+    {
+        *usecode |= (effect.cmd == PT_CMD_EXTENDED) ? (1 << (effect.data.ext.cmd + 16)) : (1 << (effect.cmd));
+    }
+    else
     {
         effect.cmd = 0;
         effect.data.value = 0;
     }
-
-    *usecode |= (effect.cmd == PT_CMD_EXTENDED) ? (1 << (effect.data.ext.cmd + 16)) : (1 << (effect.cmd));
 
     // empty channel
     if (!note && !instrument && !has_command)
@@ -411,9 +420,9 @@ static void build_patterns(player61a_t* output, const protracker_t* input, const
     output->pattern_offsets = malloc(input->num_patterns * sizeof(p61a_pattern_offset_t));
     memset(output->pattern_offsets, 0, input->num_patterns * sizeof(p61a_pattern_offset_t));
 
-    for (size_t i = 0; i < input->num_patterns; ++i)
+    for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
     {
-        for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
+        for (size_t i = 0; i < input->num_patterns; ++i)
         {
             p61a_channel_t track[PT_PATTERN_ROWS];
 
@@ -561,7 +570,7 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
     player61a_create(&temp);
     uint32_t usecode = 0;
 
-    build_samples(&temp, module, options);
+    build_samples(&temp, module, options, &usecode);
     build_patterns(&temp, module, options, &usecode);
 
     LOG_TRACE("usecode: %08x\n", usecode);
@@ -690,25 +699,17 @@ static const uint8_t* read_patterns(p61a_pattern_t* patterns, p61a_pattern_offse
             {
                 size_t clen = get_channel_length((const p61a_channel_t*)track);
 
-                switch (clen)
+                LOG_TRACE("%lu ", clen);
+                for (size_t k = 0; k < 3; ++k)
                 {
-                    case 1:
+                    if (k < clen)
                     {
-                        LOG_TRACE("1 %02x      ", *(track+0));
+                        LOG_TRACE("%02X", track[k]);
                     }
-                    break;
-
-                    case 2:
+                    else
                     {
-                        LOG_TRACE("2 %02x%02x    ", *(track+0), *(track+1));
+                        LOG_TRACE("  ");
                     }
-                    break;
-
-                    case 3:
-                    {
-                        LOG_TRACE("3 %02x%02x%02x  ", *(track+0), *(track+1), *(track+2));
-                    }
-                    break;
                 }
 
                 protracker_channel_t ptc;
@@ -716,13 +717,14 @@ static const uint8_t* read_patterns(p61a_pattern_t* patterns, p61a_pattern_offse
                 char buf[32];
                 protracker_channel_to_text(&ptc, buf, sizeof(buf));
 
-                LOG_TRACE("%s\n", buf);
+                LOG_TRACE(" %s\n", buf);
 
                 if (*track & CHANNEL_COMPRESSED)
                 {
-                    LOG_TRACE("COMPRESSION %02x %02x %02x\n", *(track+1), *(track+2), *(track+3));
+                    const uint8_t* comp = track + clen;
+                    LOG_TRACE("COMPRESSION %02x %02x %02x\n", comp[0], comp[1], comp[2]);
 
-                    const uint8_t cmd = *(track+1);
+                    const uint8_t cmd = comp[0];
 
                     switch (cmd & COMPRESSION_CMD_BITS)
                     {
@@ -741,7 +743,7 @@ static const uint8_t* read_patterns(p61a_pattern_t* patterns, p61a_pattern_offse
                         case COMPRESSION_SHORT_JUMP:
                         {
                             uint8_t rows = cmd & COMPRESSION_DATA_BITS;
-                            uint8_t offset = *(track+2);
+                            uint8_t offset = comp[1];
 
                             LOG_TRACE("SHORT JUMP %u %u\n", rows, offset);
                         }
@@ -750,7 +752,7 @@ static const uint8_t* read_patterns(p61a_pattern_t* patterns, p61a_pattern_offse
                         case COMPRESSION_LONG_JUMP:
                         {
                             uint8_t rows = cmd & COMPRESSION_DATA_BITS;
-                            uint16_t offset = ntohs((*(track+2) << 8)|(*(track+3)));
+                            uint16_t offset = ntohs((comp[1] << 8)|(comp[2]));
 
                             LOG_TRACE("LONG JUMP %u %u\n", rows, offset);
                         }
@@ -852,14 +854,14 @@ protracker_t* player61a_load(const buffer_t* buffer)
         }
 
         // patterns
-/*
+
         p61a_pattern_t* patterns = malloc(sizeof(p61a_pattern_t) * header.pattern_count);
         memset(patterns, 0, sizeof(p61a_pattern_t) * header.pattern_count);
         if (!(curr = read_patterns(patterns, pattern_offsets, header.pattern_count, curr, max)))
         {
             break;
         }
-*/
+
         // samples
 
         const uint8_t* samples = raw + header.sample_offset;
