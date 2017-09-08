@@ -58,7 +58,7 @@ typedef struct __attribute__((__packed__))
 typedef struct __attribute__((__packed__))
 {
     uint16_t sample_offset;
-    uint8_t num_patterns;
+    uint8_t pattern_count;
     uint8_t sample_count; // 0x1f = sample count (1-31), 0x20 = 4-bit compression 0x40 = delta compression
 } player61a_header_t;
 

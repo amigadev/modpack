@@ -53,7 +53,6 @@ int main(int argc, char* argv[])
             module = module_load(filename, format);
             if (!module)
             {
-                LOG_ERROR("Failed to load '%s'.\n");
                 break;
             }
 
@@ -270,7 +269,7 @@ static protracker_t* module_load(const char* filename, const char* format)
 
         if (!module)
         {
-            LOG_ERROR("Failed to load module '%s'.\n");
+            LOG_ERROR("Failed to load module '%s'.\n", filename);
             break;
         }
     }

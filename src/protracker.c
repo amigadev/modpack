@@ -112,7 +112,8 @@ protracker_t* protracker_load(const buffer_t* buffer)
     protracker_t module;
     protracker_create(&module);
 
-    do {
+    do
+    {
         size_t size = buffer_count(buffer);
         if (size < sizeof(protracker_header_t))
         {

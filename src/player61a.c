@@ -148,7 +148,7 @@ static player61a_offsets_t get_module_offsets(const player61a_t* module)
 
     curr += sizeof(player61a_header_t);   // header
     curr += sizeof(player61a_sample_t) * module->header.sample_count; // sample headers
-    curr += sizeof(player61a_pattern_offset_t) * module->header.num_patterns; // pattern offsets
+    curr += sizeof(player61a_pattern_offset_t) * module->header.pattern_count; // pattern offsets
     curr += module->song.length; // song positions
 
     offsets.patterns = curr;
@@ -323,7 +323,7 @@ static void build_patterns(player61a_t* output, const protracker_t* input, const
 {
     LOG_DEBUG("Converting patterns...\n");
 
-    output->header.num_patterns = input->num_patterns;
+    output->header.pattern_count = input->num_patterns;
 
     output->song.length = input->song.length;
     memcpy(output->song.positions, input->song.positions, sizeof(uint8_t) * PT_NUM_POSITIONS);
@@ -394,7 +394,7 @@ static void write_song(buffer_t* buffer, const player61a_t* module, const char* 
         player61a_header_t header;
 
         header.sample_offset = htons(offsets.samples);
-        header.num_patterns = module->header.num_patterns;
+        header.pattern_count = module->header.pattern_count;
         header.sample_count = module->header.sample_count;
 
         buffer_add(buffer, &header, sizeof(header));
@@ -417,7 +417,7 @@ static void write_song(buffer_t* buffer, const player61a_t* module, const char* 
 
     // pattern offsets
 
-    for (size_t i = 0; i < module->header.num_patterns; ++i)
+    for (size_t i = 0; i < module->header.pattern_count; ++i)
     {
         player61a_pattern_offset_t offset;
         for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
@@ -485,7 +485,177 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
     return true;
 }
 
+static const uint8_t* read_sample_headers(player61a_sample_t* sample_headers, const player61a_header_t* header, const uint8_t* curr, const uint8_t* max)
+{
+    for (size_t i = 0; i < header->sample_count; ++i)
+    {
+        if ((max - curr) < sizeof(player61a_sample_t))
+        {
+            LOG_ERROR("Premature end of data before sample #%lu.\n", (i+1));
+            return NULL;
+        }
+
+        player61a_sample_t sample;
+        memcpy(&sample, curr, sizeof(sample));
+        curr += sizeof(sample);
+
+        sample.length = ntohs(sample.length);
+        sample.finetone = sample.finetone;
+        sample.volume = sample.volume;
+        sample.repeat_offset = ntohs(sample.repeat_offset);
+
+        LOG_TRACE(" #%02u - length: $%04X, finetone: %u, volume: %u, repeat offset: $%04X\n",
+            (i+1),
+            sample.length,
+            sample.finetone,
+            sample.volume,
+            sample.repeat_offset
+        );
+
+        sample_headers[i] = sample;
+    }
+
+    return curr;
+}
+
+static const uint8_t* read_pattern_offsets(player61a_pattern_offset_t* pattern_offsets, const player61a_header_t* header, const uint8_t* curr, const uint8_t* max)
+{
+    for (size_t i = 0; i < header->pattern_count; ++i)
+    {
+        if ((max - curr) < sizeof(player61a_pattern_offset_t))
+        {
+            LOG_ERROR("Premature end of data before pattern offset %lu.\n", i);
+            return NULL;
+        }
+
+        player61a_pattern_offset_t offset;
+        memcpy(&offset, curr, sizeof(offset));
+        curr += sizeof(offset);
+
+        LOG_TRACE(" #%lu:", i);
+        for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
+        {
+            offset.channels[j] = ntohs(offset.channels[j]);
+            LOG_TRACE(" %04X", offset.channels[j]);
+        }
+        LOG_TRACE("\n");
+
+        pattern_offsets[i] = offset;
+    }
+    return curr;
+}
+
+static const uint8_t* read_song_positions(uint8_t* song_positions, const uint8_t* curr, const uint8_t* max)
+{
+    LOG_TRACE(" ");
+    for (size_t i = 0; i < PT_NUM_POSITIONS; ++i)
+    {
+        if ((max - curr) < sizeof(uint8_t))
+        {
+            LOG_ERROR("Premature end of data before song position %lu.\n", i);
+            return NULL;
+        }
+
+        uint8_t position = *curr++;
+        if (position == 0xff)
+        {
+            // TODO: we need to store the song length
+            break;
+        }
+
+        LOG_TRACE(" %u", position);
+
+        song_positions[i] = position;
+    }
+    LOG_TRACE("\n");
+
+    return curr;
+}
+
+
 protracker_t* player61a_load(const buffer_t* buffer)
 {
+    LOG_DEBUG("Loading Player 6.1A module...\n");
+
+    protracker_t module;
+    protracker_create(&module);
+
+    size_t signature_length = strlen(signature);
+
+    do
+    {
+        size_t size = buffer_count(buffer);
+        if (size < sizeof(player61a_header_t) + signature_length)
+        {
+            LOG_ERROR("Premature end of data before header.\n");
+            break;
+        }
+
+        const uint8_t* raw = buffer_get(buffer, 0);
+
+        // check for P61A (and skip it)
+        if (!memcmp(signature, raw, signature_length))
+        {
+            raw += signature_length;
+            size -= signature_length;
+        }
+
+        const uint8_t* curr = raw;
+        const uint8_t* max = curr + size;
+
+        // header
+
+        player61a_header_t header;
+        memcpy(&header, curr, sizeof(header));
+        curr += sizeof(player61a_header_t);
+
+        header.sample_offset = ntohs(header.sample_offset);
+        LOG_TRACE("Header:\n Sample Offset: %u\n Patterns:%u\n Sample count:%u\n", header.sample_offset, header.pattern_count, header.sample_count);
+
+        if (!header.pattern_count)
+        {
+            LOG_ERROR("Invalid pattern count in header. (%u)\n", header.pattern_count);
+            break;
+        }
+
+        if (header.sample_count > PT_NUM_SAMPLES)
+        {
+            LOG_ERROR("Invalid sample count in header. (%u > %u)\n", header.sample_count, PT_NUM_SAMPLES);
+            break;
+        }
+
+        // sample headers
+
+        LOG_TRACE("Samples:\n");
+        player61a_sample_t sample_headers[header.sample_count];
+        if (!(curr = read_sample_headers(sample_headers, &header, curr, max)))
+        {
+            break;
+        }
+
+        // pattern offsets
+
+        LOG_TRACE("Pattern Offsets:\n");
+
+        player61a_pattern_offset_t pattern_offsets[header.pattern_count];
+        if (!(curr = read_pattern_offsets(pattern_offsets, &header, curr, max)))
+        {
+            break;
+        }
+
+        // song positions
+
+        LOG_TRACE("Song Positions:\n");
+
+        uint8_t song_positions[PT_NUM_POSITIONS] = { 0 };
+        if (!(curr = read_song_positions(song_positions, curr, max)))
+        {
+            break;
+        }
+    }
+    while (false);
+
+    protracker_destroy(&module);
+
     return NULL;
 }
