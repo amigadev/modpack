@@ -108,9 +108,12 @@ typedef struct __attribute__((__packed__))
     uint8_t* sample_data[PT_NUM_SAMPLES];
 } protracker_t;
 
-protracker_t* protracker_load(const char* filename);
-bool protracker_convert(buffer_t* buffer, const protracker_t* module, const char* opts);
+void protracker_create(protracker_t* module);
+void protracker_destroy(protracker_t* module);
 void protracker_free(protracker_t* module);
+
+protracker_t* protracker_load(const buffer_t* buffer);
+bool protracker_convert(buffer_t* buffer, const protracker_t* module, const char* opts);
 
 uint8_t protracker_get_sample(const protracker_channel_t* channel);
 uint16_t protracker_get_period(const protracker_channel_t* channel);

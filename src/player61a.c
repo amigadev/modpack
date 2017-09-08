@@ -484,3 +484,8 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
 
     return true;
 }
+
+protracker_t* player61a_load(const buffer_t* buffer)
+{
+    return NULL;
+}

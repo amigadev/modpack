@@ -12,24 +12,8 @@ static const unsigned char help_text[] = {
 #include <stdio.h>
 #include <string.h>
 
-bool show_help(int argc, char* argv[])
-{
-    bool help = argc < 2;
-    for (size_t i = 1; i < argc; ++i)
-    {
-        if (!strcmp("-h", argv[i]) || !strcmp("--help", argv[i]))
-        {
-            help = true;
-        }
-    }
-    if (!help)
-    {
-        return false;
-    }
-
-    LOG_INFO("%s", help_text);
-    return true;
-}
+static bool show_help(int argc, char* argv[]);
+static protracker_t* module_load(const char* filename, const char* format);
 
 int main(int argc, char* argv[])
 {
@@ -64,19 +48,12 @@ int main(int argc, char* argv[])
             const char* format = arg+4;
             const char* filename = opt;
 
-            if (!strcmp("mod", format))
-            {
-                module = protracker_load(filename);
-            }
-            else
-            {
-                LOG_ERROR("Unknown input format '%s'.\n", format);
-                break;
-            }
+            LOG_INFO("Loading '%s'...\n", filename);
 
+            module = module_load(filename, format);
             if (!module)
             {
-                LOG_ERROR("Failed to load module '%s'.\n");
+                LOG_ERROR("Failed to load '%s'.\n");
                 break;
             }
 
@@ -222,4 +199,89 @@ int main(int argc, char* argv[])
     }
 
     return (i == argc) ? 0 : 1;
+}
+
+static bool show_help(int argc, char* argv[])
+{
+    bool help = argc < 2;
+    for (size_t i = 1; i < argc; ++i)
+    {
+        if (!strcmp("-h", argv[i]) || !strcmp("--help", argv[i]))
+        {
+            help = true;
+        }
+    }
+    if (!help)
+    {
+        return false;
+    }
+
+    LOG_INFO("%s", help_text);
+    return true;
+}
+
+static protracker_t* module_load(const char* filename, const char* format)
+{
+    protracker_t* module = NULL;
+    FILE* fp = NULL;
+
+    buffer_t buffer;
+    buffer_init(&buffer, 1);
+
+    do
+    {
+        if (strcmp("-", filename))
+        {
+            fp = fopen(filename, "rb");
+            if (!fp)
+            {
+                LOG_ERROR("Failed to open file '%s'.\n", filename);
+                break;
+            }
+        }
+        else
+        {
+            fp = stdin;
+        }
+
+        char buf[1024];
+        do {
+            size_t sz = fread(buf, 1, sizeof(buf), fp);
+            buffer_add(&buffer, buf, sz);
+            if (sz < sizeof(buf))
+            {
+                break;
+            }
+        } while (true);
+
+        if (!strcmp("mod", format))
+        {
+            module = protracker_load(&buffer);
+        }
+        else if (!strcmp("p61a", format))
+        {
+            module = player61a_load(&buffer);
+        }
+        else
+        {
+            LOG_ERROR("Unknown input format '%s'.\n", format);
+            break;
+        }
+
+        if (!module)
+        {
+            LOG_ERROR("Failed to load module '%s'.\n");
+            break;
+        }
+    }
+    while (false);
+
+    if (fp && (fp != stdin))
+    {
+        fclose(fp);
+    }
+
+    buffer_release(&buffer);
+
+    return module;
 }

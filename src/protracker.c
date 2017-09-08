@@ -105,39 +105,21 @@ static const uint8_t* process_sample_data(protracker_t* module, const uint8_t* i
     return (i == PT_NUM_SAMPLES) ? in : NULL;
 }
 
-protracker_t* protracker_load(const char* filename)
+protracker_t* protracker_load(const buffer_t* buffer)
 {
-    LOG_INFO("Loading Protracker module '%s'\n", filename);
-
-    FILE* fp = fopen(filename, "rb");
-    if (!fp)
-    {
-        LOG_INFO("Failed top open file '%s'\n", filename);
-        return NULL;
-    }
-
-    fseek(fp, 0, SEEK_END);
-    size_t size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-
-    uint8_t* raw = NULL;
+    LOG_DEBUG("Loading Protracker module...\n");
 
     protracker_t module;
-    memset(&module, 0, sizeof(module));
+    protracker_create(&module);
 
     do {
-        raw = malloc(size);
-        if (!raw)
+        size_t size = buffer_count(buffer);
+        if (size < sizeof(protracker_header_t))
         {
-            LOG_ERROR("Failed to allocate %lu bytes\n", size);
+            LOG_ERROR("Premature end of data before header.\n");
             break;
         }
-
-        if (fread(raw, 1, size, fp) != size)
-        {
-            LOG_ERROR("Failed to read %lu bytes\n", size);
-            break;
-        }
+        const uint8_t* raw = buffer_get(buffer, 0);
 
         const uint8_t* curr = raw;
         const uint8_t* max = curr + size;
@@ -270,19 +252,12 @@ protracker_t* protracker_load(const char* filename)
         }
         *output = module;
 
-        free(raw);
-
         return output;
     } while (0);
 
     LOG_ERROR("Failed to load Protracker module.\n");
 
-    free(raw);
-    free(module.patterns);
-    for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
-    {
-        free(module.sample_data[i]);
-    }
+    protracker_destroy(&module);
 
     return NULL;
 }
@@ -338,13 +313,23 @@ bool protracker_convert(buffer_t* buffer, const protracker_t* module, const char
     return true;
 }
 
-void protracker_free(protracker_t* module)
+void protracker_create(protracker_t* module)
+{
+    memset(module, 0, sizeof(protracker_t));
+}
+
+void protracker_destroy(protracker_t* module)
 {
     free(module->patterns);
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
         free(module->sample_data[i]);
     }
+}
+
+void protracker_free(protracker_t* module)
+{
+    protracker_destroy(module);
     free(module);
 }
 

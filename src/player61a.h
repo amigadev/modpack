@@ -96,3 +96,5 @@ typedef struct
 } player61a_t;
 
 bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char* opts);
+protracker_t* player61a_load(const buffer_t* buffer);
+
