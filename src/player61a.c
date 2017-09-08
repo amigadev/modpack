@@ -38,7 +38,7 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
         const protracker_sample_t* input = &(module->sample_headers[i]);
-        player61a_sample_t* sample = &(output->sample_headers[i]);
+        p61a_sample_t* sample = &(output->sample_headers[i]);
 
         if (!usage[i])
         {
@@ -138,17 +138,17 @@ typedef struct
 {
     size_t patterns;
     size_t samples;
-} player61a_offsets_t;
+} p61a_offsets_t;
 
-static player61a_offsets_t get_module_offsets(const player61a_t* module)
+static p61a_offsets_t get_module_offsets(const player61a_t* module)
 {
-    player61a_offsets_t offsets;
+    p61a_offsets_t offsets;
 
     size_t curr = 0;
 
-    curr += sizeof(player61a_header_t);   // header
-    curr += sizeof(player61a_sample_t) * module->header.sample_count; // sample headers
-    curr += sizeof(player61a_pattern_offset_t) * module->header.pattern_count; // pattern offsets
+    curr += sizeof(p61a_header_t);   // header
+    curr += sizeof(p61a_sample_t) * module->header.sample_count; // sample headers
+    curr += sizeof(p61a_pattern_offset_t) * module->header.pattern_count; // pattern offsets
     curr += module->song.length; // song positions
 
     offsets.patterns = curr;
@@ -160,7 +160,7 @@ static player61a_offsets_t get_module_offsets(const player61a_t* module)
     return offsets;
 }
 
-static size_t get_channel_length(const player61a_channel_t* channel)
+static size_t get_channel_length(const p61a_channel_t* channel)
 {
     if ((channel->data[0] & CHANNEL_EMPTY) == CHANNEL_EMPTY)
         return 1;
@@ -174,7 +174,7 @@ static size_t get_channel_length(const player61a_channel_t* channel)
     return 3;
 }
 
-static size_t convert_channel(player61a_channel_t* out, const protracker_channel_t* in, const protracker_pattern_row_t* row, size_t channel_index, uint32_t* usecode)
+static size_t convert_channel(p61a_channel_t* out, const protracker_channel_t* in, const protracker_pattern_row_t* row, size_t channel_index, uint32_t* usecode)
 {
     uint8_t instrument = protracker_get_sample(in);
     uint16_t period = protracker_get_period(in);
@@ -306,14 +306,14 @@ static size_t convert_channel(player61a_channel_t* out, const protracker_channel
     return 3;
 }
 
-static size_t build_track(player61a_channel_t* channel, const protracker_pattern_t* pattern, size_t channel_index, uint32_t* usecode)
+static size_t build_track(p61a_channel_t* channel, const protracker_pattern_t* pattern, size_t channel_index, uint32_t* usecode)
 {
     for (size_t i = 0; i < PT_PATTERN_ROWS; ++i)
     {
         const protracker_pattern_row_t* row = &(pattern->rows[i]);
         const protracker_channel_t* in = &(row->channels[channel_index]);
 
-        player61a_channel_t out;
+        p61a_channel_t out;
         size_t size = convert_channel(&out, in, row, channel_index, usecode);
     }
     return PT_PATTERN_ROWS;
@@ -328,14 +328,14 @@ static void build_patterns(player61a_t* output, const protracker_t* input, const
     output->song.length = input->song.length;
     memcpy(output->song.positions, input->song.positions, sizeof(uint8_t) * PT_NUM_POSITIONS);
 
-    output->pattern_offsets = malloc(input->num_patterns * sizeof(player61a_pattern_offset_t));
-    memset(output->pattern_offsets, 0, input->num_patterns * sizeof(player61a_pattern_offset_t));
+    output->pattern_offsets = malloc(input->num_patterns * sizeof(p61a_pattern_offset_t));
+    memset(output->pattern_offsets, 0, input->num_patterns * sizeof(p61a_pattern_offset_t));
 
     for (size_t i = 0; i < input->num_patterns; ++i)
     {
         for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
         {
-            player61a_channel_t track[PT_PATTERN_ROWS];
+            p61a_channel_t track[PT_PATTERN_ROWS];
 
             size_t length = build_track(track, &(input->patterns[i]), j, usecode);
 
@@ -345,7 +345,7 @@ static void build_patterns(player61a_t* output, const protracker_t* input, const
 
             for (size_t k = 0; k < length; ++k)
             {
-                const player61a_channel_t* channel = &(track[k]);
+                const p61a_channel_t* channel = &(track[k]);
                 buffer_add(&(output->patterns), channel, get_channel_length(channel));
             }
 
@@ -386,12 +386,12 @@ static void write_song(buffer_t* buffer, const player61a_t* module, const char* 
         buffer_add(buffer, signature, strlen(signature));
     }
 
-    player61a_offsets_t offsets = get_module_offsets(module);
+    p61a_offsets_t offsets = get_module_offsets(module);
 
     // header
 
     {
-        player61a_header_t header;
+        p61a_header_t header;
 
         header.sample_offset = htons(offsets.samples);
         header.pattern_count = module->header.pattern_count;
@@ -404,8 +404,8 @@ static void write_song(buffer_t* buffer, const player61a_t* module, const char* 
 
     for (size_t i = 0; i < module->header.sample_count; ++i)
     {
-        const player61a_sample_t* in = &(module->sample_headers[i]);
-        player61a_sample_t sample;
+        const p61a_sample_t* in = &(module->sample_headers[i]);
+        p61a_sample_t sample;
 
         sample.length = htons(in->length);
         sample.finetone = in->finetone;
@@ -419,7 +419,7 @@ static void write_song(buffer_t* buffer, const player61a_t* module, const char* 
 
     for (size_t i = 0; i < module->header.pattern_count; ++i)
     {
-        player61a_pattern_offset_t offset;
+        p61a_pattern_offset_t offset;
         for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
         {
             offset.channels[j] = htons(module->pattern_offsets[i].channels[j]);
@@ -485,17 +485,17 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
     return true;
 }
 
-static const uint8_t* read_sample_headers(player61a_sample_t* sample_headers, const player61a_header_t* header, const uint8_t* curr, const uint8_t* max)
+static const uint8_t* read_sample_headers(p61a_sample_t* sample_headers, const p61a_header_t* header, const uint8_t* curr, const uint8_t* max)
 {
     for (size_t i = 0; i < header->sample_count; ++i)
     {
-        if ((max - curr) < sizeof(player61a_sample_t))
+        if ((max - curr) < sizeof(p61a_sample_t))
         {
             LOG_ERROR("Premature end of data before sample #%lu.\n", (i+1));
             return NULL;
         }
 
-        player61a_sample_t sample;
+        p61a_sample_t sample;
         memcpy(&sample, curr, sizeof(sample));
         curr += sizeof(sample);
 
@@ -518,17 +518,17 @@ static const uint8_t* read_sample_headers(player61a_sample_t* sample_headers, co
     return curr;
 }
 
-static const uint8_t* read_pattern_offsets(player61a_pattern_offset_t* pattern_offsets, const player61a_header_t* header, const uint8_t* curr, const uint8_t* max)
+static const uint8_t* read_pattern_offsets(p61a_pattern_offset_t* pattern_offsets, const p61a_header_t* header, const uint8_t* curr, const uint8_t* max)
 {
     for (size_t i = 0; i < header->pattern_count; ++i)
     {
-        if ((max - curr) < sizeof(player61a_pattern_offset_t))
+        if ((max - curr) < sizeof(p61a_pattern_offset_t))
         {
             LOG_ERROR("Premature end of data before pattern offset %lu.\n", i);
             return NULL;
         }
 
-        player61a_pattern_offset_t offset;
+        p61a_pattern_offset_t offset;
         memcpy(&offset, curr, sizeof(offset));
         curr += sizeof(offset);
 
@@ -545,7 +545,7 @@ static const uint8_t* read_pattern_offsets(player61a_pattern_offset_t* pattern_o
     return curr;
 }
 
-static const uint8_t* read_song_positions(uint8_t* song_positions, const uint8_t* curr, const uint8_t* max)
+static const uint8_t* read_song_positions(p61a_song_t* song, const uint8_t* curr, const uint8_t* max)
 {
     LOG_TRACE(" ");
     for (size_t i = 0; i < PT_NUM_POSITIONS; ++i)
@@ -559,13 +559,13 @@ static const uint8_t* read_song_positions(uint8_t* song_positions, const uint8_t
         uint8_t position = *curr++;
         if (position == 0xff)
         {
-            // TODO: we need to store the song length
+            song->length = i;
             break;
         }
 
         LOG_TRACE(" %u", position);
 
-        song_positions[i] = position;
+        song->positions[i] = position;
     }
     LOG_TRACE("\n");
 
@@ -585,7 +585,7 @@ protracker_t* player61a_load(const buffer_t* buffer)
     do
     {
         size_t size = buffer_count(buffer);
-        if (size < sizeof(player61a_header_t) + signature_length)
+        if (size < sizeof(p61a_header_t) + signature_length)
         {
             LOG_ERROR("Premature end of data before header.\n");
             break;
@@ -605,9 +605,9 @@ protracker_t* player61a_load(const buffer_t* buffer)
 
         // header
 
-        player61a_header_t header;
+        p61a_header_t header;
         memcpy(&header, curr, sizeof(header));
-        curr += sizeof(player61a_header_t);
+        curr += sizeof(p61a_header_t);
 
         header.sample_offset = ntohs(header.sample_offset);
         LOG_TRACE("Header:\n Sample Offset: %u\n Patterns:%u\n Sample count:%u\n", header.sample_offset, header.pattern_count, header.sample_count);
@@ -627,7 +627,7 @@ protracker_t* player61a_load(const buffer_t* buffer)
         // sample headers
 
         LOG_TRACE("Samples:\n");
-        player61a_sample_t sample_headers[header.sample_count];
+        p61a_sample_t sample_headers[header.sample_count];
         if (!(curr = read_sample_headers(sample_headers, &header, curr, max)))
         {
             break;
@@ -637,7 +637,7 @@ protracker_t* player61a_load(const buffer_t* buffer)
 
         LOG_TRACE("Pattern Offsets:\n");
 
-        player61a_pattern_offset_t pattern_offsets[header.pattern_count];
+        p61a_pattern_offset_t pattern_offsets[header.pattern_count];
         if (!(curr = read_pattern_offsets(pattern_offsets, &header, curr, max)))
         {
             break;
@@ -646,9 +646,8 @@ protracker_t* player61a_load(const buffer_t* buffer)
         // song positions
 
         LOG_TRACE("Song Positions:\n");
-
-        uint8_t song_positions[PT_NUM_POSITIONS] = { 0 };
-        if (!(curr = read_song_positions(song_positions, curr, max)))
+        p61a_song_t song = { 0 };
+        if (!(curr = read_song_positions(&song, curr, max)))
         {
             break;
         }
