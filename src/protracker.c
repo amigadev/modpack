@@ -97,6 +97,17 @@ static const uint8_t* process_sample_data(protracker_t* module, const uint8_t* i
 
         memcpy(data, in, bytes);
 
+        for (size_t i = 0; i < 256 && i < bytes; ++i)
+        {
+            if ((i & 15) == 0)
+            {
+                LOG_TRACE("\n%04X:", i);
+            }
+
+            LOG_TRACE("%02X", data[i]);
+        }
+        LOG_TRACE("\n");
+
         LOG_TRACE(" #%lu - %u bytes\n", i+1, bytes);
 
         in += bytes;
@@ -156,7 +167,7 @@ protracker_t* protracker_load(const buffer_t* buffer)
             break;
         }
 
-        // Tune
+        // Song
 
         memcpy(&module.song, curr, sizeof(protracker_song_t));
         curr += sizeof(protracker_song_t);
