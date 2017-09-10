@@ -691,20 +691,29 @@ static const uint8_t* read_song_positions(p61a_song_t* song, const uint8_t* curr
     return curr;
 }
 
-static size_t decompress_track(p61a_pattern_t* pattern, size_t channel_index, size_t offset, size_t end, const uint8_t* track, bool deref, const uint8_t* base)
+static size_t decompress_track(p61a_pattern_t* pattern, size_t channel_index, size_t offset, size_t maxrows, const uint8_t* track, bool deref, const uint8_t* base)
 {
-    while(offset < end)
+    LOG_TRACE("decompress_track(%lu, %lu%s)\n", offset, maxrows, deref ? ", deref" : "");
+
+    while(offset < PT_PATTERN_ROWS)
     {
         uint8_t c0 = *track++, c1 = 0, c2 = 0;
         p61a_channel_t out = { 0 };
 
         if ((c0 & CHANNEL_EMPTY) == CHANNEL_EMPTY)
         {
+            LOG_TRACE(" %02lu %04x: %02x    ", offset, ((track-1)-base) & 0xffff, c0);
+            if (!(c0 & CHANNEL_COMPRESSED))
+            {
+                ++offset;
+            }
         }
         else if ((c0 & CHANNEL_NOTE_INSTRUMENT) == CHANNEL_NOTE_INSTRUMENT)
         {
             out.data[0] = c0;
             out.data[1] = c1 = *track++;
+
+            LOG_TRACE(" %02lu %04x: %02x%02x  ", offset, ((track-2)-base) & 0xffff, c0, c1);
 
             pattern->rows[offset++].channels[channel_index] = out;
         }
@@ -712,6 +721,8 @@ static size_t decompress_track(p61a_pattern_t* pattern, size_t channel_index, si
         {
             out.data[0] = c0;
             out.data[1] = c1 = *track++;
+
+            LOG_TRACE(" %02lu %04x: %02x%02x  ", offset, ((track-2)-base) & 0xffff, c0, c1);
 
             pattern->rows[offset++].channels[channel_index] = out;
         }
@@ -721,26 +732,46 @@ static size_t decompress_track(p61a_pattern_t* pattern, size_t channel_index, si
             out.data[1] = c1 = *track++;
             out.data[2] = c2 = *track++;
 
+            LOG_TRACE(" %02lu %04x: %02x%02x%02x", offset, ((track-3)-base) & 0xffff, c0, c1, c2);
+
             pattern->rows[offset++].channels[channel_index] = out;
         }
+
+        protracker_channel_t ptc;
+
+        to_protracker_channel(&ptc, &out);
+
+        char buf[32];
+        protracker_channel_to_text(&ptc, buf, sizeof(buf));
+
+        LOG_TRACE(" %s", buf);
 
         if (c0 & CHANNEL_COMPRESSED)
         {
             uint8_t d0 = *track++;
+            LOG_TRACE(" %02x", d0);
+
             if (d0 & COMPRESSION_JUMP)
             {
-                uint8_t rows = (d0 & COMPRESSION_DATA_BITS);
+                uint8_t rows = (d0 & COMPRESSION_DATA_BITS) + 1;
                 uint16_t dist = *track++;
+                LOG_TRACE("%02x", dist);
                 if (d0 & COMPRESSION_JUMP_LONG)
                 {
-                    dist = (dist << 8)|(*(track++));
+                    uint8_t d2 = *track++;
+                    LOG_TRACE("%02x", d2);
+                    dist = (dist << 8)|d2;
                 }
 
-                offset = decompress_track(pattern, channel_index, offset, offset + rows + 1, track - dist, true, base);
+                LOG_TRACE(" (%s JUMP %u %04x)\n", (d0 & COMPRESSION_JUMP_LONG) ? "LONG" : "SHORT", rows, dist);
+
+                offset = decompress_track(pattern, channel_index, offset, rows, track - dist, true, base);
             }
             else if (d0 & COMPRESSION_REPEAT_ROWS)
             {
                 uint8_t rows = (d0 & COMPRESSION_DATA_BITS);
+
+                LOG_TRACE(" (REPEAT %d)\n", rows);
 
                 for (size_t i = 0; i < rows; ++i)
                 {
@@ -750,10 +781,24 @@ static size_t decompress_track(p61a_pattern_t* pattern, size_t channel_index, si
             else if ((d0 & COMPRESSION_CMD_BITS) == COMPRESSION_EMPTY_ROWS)
             {
                 uint8_t rows = (d0 & COMPRESSION_DATA_BITS);
+
+                LOG_TRACE(" (EMPTY %d)\n", rows);
+
                 offset += rows;
             }
         }
+        else
+        {
+            LOG_TRACE("\n");
+        }
+
+        if (maxrows > 0 && ((--maxrows) == 0))
+        {
+            break;
+        }
     }
+
+    LOG_TRACE(" - DONE (%lu)\n", offset);
 
     return offset;
 }
@@ -770,7 +815,9 @@ static const uint8_t* read_patterns(p61a_pattern_t* patterns, p61a_pattern_offse
             size_t current_row = 0;
             const uint8_t* track = curr + offsets->channels[j];
 
-            decompress_track(pattern, j, 0, PT_PATTERN_ROWS, curr + offsets->channels[j], false, curr + offsets->channels[j]);
+            LOG_TRACE("Pattern #%lu, track #%lu:\n", i,j);
+
+            decompress_track(pattern, j, 0, 0, curr + offsets->channels[j], false, curr + offsets->channels[j]);
         }
     }
 
