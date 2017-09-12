@@ -1,90 +1,72 @@
-Modpack - Optimizer, Compressor and Converter
-==================================
+Modpack - Optimize, compress and convert ProTracker/P61A modules
+================================================================
 
-Utility to optimize, compress and convert songs between different formats.
+Arguments are processed from left to right. This means you can write more
+than one output if needed.
 
-Supported input formats are:
+Importing / exporting modules:
 
-    MOD - ProTracker
+  -in:FORMAT NAME           Load module in specified format.
+  -out:FORMAT NAME          Save module in specified format.
 
-Supported output formats are:
+  Available formats:
 
-    MOD - ProTracker
-    P61A - The Player 6.1A
+    mod                     Protracker
+    p61a                    The Player 6.1A
 
-Arguments
----------
+  If NAME is -, standard input/output will be utilized.
+  
+  -opts:OPTIONS             Set import/export options
 
-Arguments are processed from left to right. This means you can write more than one output if needed.
+  P61A export options:
+  
+    sign                    Add signature when exporting ('P61A') (disabled)
+    4bit[=RANGE]            Compress specified samples to 4-bit (disabled)
+    delta                   Delta-encode samples (disabled)
+    [-]compress_patterns    Compress pattern data (enabled)
+    [-]song                 Write song data to output (enabled)
+    [-]samples              Write sample data to output (enabled)
+  
+  Preceeding a boolean option with a minus ('-') will disable the option.
+  
+  Range examples:
+  
+  [1]                       Apply to sample 1
+  [4-7]                     Apply to sample 4-7
+  [1-4:8-12]                Apply to sample 1-4 and 8-12 (5-7 is not affected)
+  
+  
+Optimization options:
 
-`-in:<format> <name>`   Load module in specified format. Available formats:
+  -optimize OPTIONS
+  
+  Available options:
+  
+    unused_patterns         Remove unused patterns
+    unused_samples          Remove unused samples (sample index is preserved)
+    trim                    Trim tailing null data in samples (not looped samples)
+    trim_loops              Also trim looped samples (implies 'trim')
+    identical_samples       Merge identical samples (pattern data is rewritten
+                            to match)
+    compact_samples         Remove empty space in the sample table
+    clean                   Clean effects in pattern data
+    clean:e8                Remove E8x from pattern data (implies 'clean', not
+                            enabled by 'all')
+    all                     Apply all available optimizes (where applicable)
 
-                        mod                     ProTracker module
+  Preceeding a boolean option with a minus ('-') will disable the option.
 
-Specifying `-` as name will read data from standard input.
+Miscellaneous:
 
-`-optimize <options>`   Apply optimizers on the loaded song. Available optimizers:
+  -d N                      Set log level (0 = info, 1 = debug, 2 = trace)
+  -q                        Quiet mode
 
-                        unused_patterns         Remove unused patterns
-                        trim                    Trim samples to remove unused bytes (not loops)
-                        trim_loops              Trim trailing data from looped samples (implies 'trim')
-                        unused_samples          Remove unused samples (Sample index is preserved)
-                        identical_samples       Merge identical samples (Pattern samples are rewritten to match)
-                        compact_samples         Remove empty space in sample table
-                        clean                   Clean up effects, removing unnecessary commands and downgrading complex ones to simpler variants
-                        clean:e8                Remove E8x commands from patterns (implies 'clean', not enabled by 'all')
-                        all                     Apply all available optimizers (where applicable)
+Remove unused patterns and samples, and re-save as MOD:
+  
+  modpack -in:mod test.mod -optimize unused_patterns,unused_samples
+    -out:p61a test.p61
 
-`-opts:<options>`       Set comma-separated options for exporter
+Fully optimize module and export P61A (song and samples separately):
 
-                        mod
-                        ---
-                        No options available
-
-                        p61a
-                        ----
-                        sign                    Add signature ('P61A') (default: disabled)
-                        4bit[=RANGE]            4-bit compression (lossy) (default: disabled)
-                        delta                   Delta encoding (default: disabled)
-                        [-]optimize_patterns    Optimize patterns (notes, samples, effects) (default: enabled)
-                        [-]compress_patterns    Compress patterns (default: enabled)
-                        [-]song                 Write song data to output (default: enabled)
-                        [-]samples              Write sample data to output (default: enabled)
-
-                        Range examples:
-                        [1]                     Apply to sample 1 
-                        [4-7]                   Apply to sample 4-7
-                        [1-4:8-12]              Apply to sample 1-4 and 8-12 (5-7 is not affected)
-
-Preceeding a boolean option with a minus ('-') will disable the option.
-
-`-out:<format> <file>`  Save module in specified format. Available formats:
-
-                        mod                     ProTracker module
-                        p61a                    The Player 6.1a module
-
-Specifying `-` as the output filename will write the result to standard output.
-
-`-d <n>`                Change log level
-
-                        Available log levels (<n>):
-                        
-                        0 - info
-                        1 - debug
-                        2 - trace
-
-`-q`                    Quiet mode, disables all log output
-
-Examples
---------
-
-Make song as small as possible (without resorting to destructive sample compression) and export as P61A
-```
-modpack -in:mod test.mod -optimize all -out:p61a test.p61
-```
-
-Remove unused data and export P61 (song and sample data separately) - sample index is preserved
-
-```
-modpack -in:mod test.mod -optimize unused_patterns,trim,unused_samples,identical_samples -opts:-samples -out:p61a test.p61 -opts:-song -out:p61a test.smp
-```
+  modpack -in:mod test.mod -optimize all -opts:-samples -out:p61a test.p61
+    -opts:-song -out:p61a test.smp
