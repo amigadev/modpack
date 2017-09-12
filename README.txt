@@ -63,8 +63,8 @@ Miscellaneous:
 
 Remove unused patterns and samples, and re-save as MOD:
   
-  modpack -in:mod test.mod -optimize unused_patterns,unused_samples
-    -out:p61a test.p61
+  modpack -in:mod in.mod -optimize unused_patterns,unused_samples
+    -out:mod out.mod
 
 Fully optimize module and export P61A (song and samples separately):
 
