@@ -1,7 +1,7 @@
-#include "protracker.h"
-#include "buffer.h"
-#include "options.h"
-#include "log.h"
+#include "../include/internal/protracker.h"
+#include "../include/internal/buffer.h"
+#include "../include/internal/options.h"
+#include "../include/internal/log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,7 +60,7 @@ static void process_sample_header(protracker_sample_t* sample, const uint8_t* in
     char sample_name[sizeof(sample->name)+1];
     memset(sample_name, 0, sizeof(sample_name));
     memcpy(sample_name, sample->name, sizeof(sample->name));
-    LOG_TRACE(" #%02u - length: $%04X, repeat offset: $%04X, repeat length: $%04X, name: '%s'\n",
+    LOG_TRACE(instance, " #%02u - length: $%04X, repeat offset: $%04X, repeat length: $%04X, name: '%s'\n",
         index+1,
         sample->length,
         sample->repeat_offset,
@@ -69,7 +69,7 @@ static void process_sample_header(protracker_sample_t* sample, const uint8_t* in
     );
 }
 
-static const uint8_t* process_sample_data(protracker_t* module, const uint8_t* in, const uint8_t* max)
+static const uint8_t* process_sample_data(modpack_t* instance, protracker_t* module, const uint8_t* in, const uint8_t* max)
 {
     size_t i;
     for (i = 0; i < PT_NUM_SAMPLES; ++i)
@@ -78,7 +78,7 @@ static const uint8_t* process_sample_data(protracker_t* module, const uint8_t* i
 
         if (in > max)
         {
-            LOG_ERROR("Premature end of data before sample #%lu.\n", (i+1));
+            LOG_ERROR(instance, "Premature end of data before sample #%lu.\n", (i+1));
             break;
         }
 
@@ -89,7 +89,7 @@ static const uint8_t* process_sample_data(protracker_t* module, const uint8_t* i
 
         size_t bytes = sample->length * 2;
 
-        uint8_t* data = module->sample_data[i] = malloc(bytes);
+        uint8_t* data = module->sample_data[i] = instance->alloc(bytes);
         if (!data)
         {
             return NULL;
@@ -101,14 +101,14 @@ static const uint8_t* process_sample_data(protracker_t* module, const uint8_t* i
         {
             if ((i & 15) == 0)
             {
-                LOG_TRACE("\n%04X:", i);
+                LOG_TRACE(instance, "\n%04X:", i);
             }
 
-            LOG_TRACE("%02X", data[i]);
+            LOG_TRACE(instance, "%02X", data[i]);
         }
-        LOG_TRACE("\n");
+        LOG_TRACE(instance, "\n");
 
-        LOG_TRACE(" #%lu - %u bytes\n", i+1, bytes);
+        LOG_TRACE(instance, " #%lu - %u bytes\n", i+1, bytes);
 
         in += bytes;
     }
@@ -116,9 +116,9 @@ static const uint8_t* process_sample_data(protracker_t* module, const uint8_t* i
     return (i == PT_NUM_SAMPLES) ? in : NULL;
 }
 
-protracker_t* protracker_load(const buffer_t* buffer)
+protracker_t* protracker_load(modpack_t* instance, const modpack_buffer_t* buffer)
 {
-    LOG_DEBUG("Loading Protracker module...\n");
+    LOG_DEBUG(instance, "Loading Protracker module...\n");
 
     protracker_t module;
     protracker_create(&module);
@@ -128,7 +128,7 @@ protracker_t* protracker_load(const buffer_t* buffer)
         size_t size = buffer_count(buffer);
         if (size < sizeof(protracker_header_t))
         {
-            LOG_ERROR("Premature end of data before header.\n");
+            LOG_ERROR(instance, "Premature end of data before header.\n");
             break;
         }
         const uint8_t* raw = buffer_get(buffer, 0);
@@ -144,16 +144,16 @@ protracker_t* protracker_load(const buffer_t* buffer)
         char mod_name[sizeof(module.header.name)+1];
         memset(mod_name, 0, sizeof(mod_name));
         memcpy(mod_name, module.header.name, sizeof(module.header.name));
-        LOG_TRACE("Header:\n Name: '%s'\n", mod_name);
+        LOG_TRACE(instance, "Header:\n Name: '%s'\n", mod_name);
 
         // Sample headers
 
-        LOG_TRACE("Samples:\n");
+        LOG_TRACE(instance, "Samples:\n");
         for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
         {
             if (curr > max)
             {
-                LOG_ERROR("Premature end of data before sample %lu.\n", i);
+                LOG_ERROR(instance, "Premature end of data before sample %lu.\n", i);
                 break;
             }
 
@@ -163,7 +163,7 @@ protracker_t* protracker_load(const buffer_t* buffer)
 
         if (curr > max)
         {
-            LOG_ERROR("Premature end of data before song data.\n");
+            LOG_ERROR(instance, "Premature end of data before song data.\n");
             break;
         }
 
@@ -172,18 +172,18 @@ protracker_t* protracker_load(const buffer_t* buffer)
         memcpy(&module.song, curr, sizeof(protracker_song_t));
         curr += sizeof(protracker_song_t);
 
-        LOG_TRACE("Song:\n Positions: %u (%u)\n", module.song.length, module.song.restart_position);
+        LOG_TRACE(instance, "Song:\n Positions: %u (%u)\n", module.song.length, module.song.restart_position);
 
-        LOG_TRACE(" Patterns:");
+        LOG_TRACE(instance, " Patterns:");
         bool positions_valid = true;
         uint8_t max_pattern = 0;
         for (size_t i = 0; i < PT_NUM_POSITIONS; ++i)
         {
             uint8_t pattern_index = module.song.positions[i];
             max_pattern = max_pattern < pattern_index ? pattern_index : max_pattern;
-            LOG_TRACE(" %u", pattern_index);
+            LOG_TRACE(instance, " %u", pattern_index);
         }
-        LOG_TRACE("\n");
+        LOG_TRACE(instance, "\n");
         if (!positions_valid)
         {
             break;
@@ -191,7 +191,7 @@ protracker_t* protracker_load(const buffer_t* buffer)
 
         if (memcmp("M.K.", curr, 4) && memcmp("M!K!", curr, 4) && memcmp("FLT4", curr, 4) && memcmp("4CHN", curr, 4))
         {
-            LOG_ERROR("Could not find magic word, is this a ProTracker module?\n");
+            LOG_ERROR(instance, "Could not find magic word, is this a ProTracker module?\n");
             break;
         }
         curr += 4;
@@ -199,24 +199,24 @@ protracker_t* protracker_load(const buffer_t* buffer)
         // Patterns
 
         module.num_patterns = max_pattern + 1;
-        module.patterns = malloc(module.num_patterns * sizeof(protracker_pattern_t));
+        module.patterns = instance->alloc(module.num_patterns * sizeof(protracker_pattern_t));
 
         for (size_t i = 0; i < module.num_patterns; ++i)
         {
             if (curr > max)
             {
-                LOG_ERROR("Premature end of data before pattern %lu.\n", i);
+                LOG_ERROR(instance, "Premature end of data before pattern %lu.\n", i);
                 break;
             }
 
             memcpy(&module.patterns[i], curr, sizeof(protracker_pattern_t));
 
-            LOG_TRACE("Pattern #%lu:\n", i);
+            LOG_TRACE(instance, "Pattern #%lu:\n", i);
             for(size_t j = 0; j < PT_PATTERN_ROWS; ++j)
             {
                 const protracker_pattern_row_t* pos = &(module.patterns[i].rows[j]);
 
-                LOG_TRACE(" #%02lu:", j);
+                LOG_TRACE(instance, " #%02lu:", j);
 
                 for(size_t k = 0; k < PT_NUM_CHANNELS; ++k)
                 {
@@ -226,40 +226,40 @@ protracker_t* protracker_load(const buffer_t* buffer)
 
                     protracker_channel_to_text(channel, channel_string, sizeof(channel_string));
 
-                    LOG_TRACE(" %s", channel_string);
+                    LOG_TRACE(instance, " %s", channel_string);
                 }
 
-                LOG_TRACE("\n");
+                LOG_TRACE(instance, "\n");
             }
 
             curr += sizeof(protracker_pattern_t);
         }
 
-        LOG_TRACE("Sample Data:\n");
+        LOG_TRACE(instance, "Sample Data:\n");
         const uint8_t* end = process_sample_data(&module, curr, max);
 
         if (!end)
         {
-            LOG_ERROR("Failed to load sample data.\n");
+            LOG_ERROR(instance, "Failed to load sample data.\n");
             break;
         }
 
         if (max < end)
         {
-            LOG_WARN("%lu bytes not consumed while loading.\n", end - max);
+            LOG_WARN(instance, "%lu bytes not consumed while loading.\n", end - max);
         }
         else if (max > end)
         {
-            LOG_ERROR("%lu bytes missing while loading.\n", max - end);
+            LOG_ERROR(instance, "%lu bytes missing while loading.\n", max - end);
             break;
         }
 
-        LOG_DEBUG("Protracker module loaded successfully.\n");
+        LOG_DEBUG(instance, "Protracker module loaded successfully.\n");
 
-        protracker_t* output = malloc(sizeof(protracker_t));
+        protracker_t* output = instance->alloc(sizeof(protracker_t));
         if (!output)
         {
-            LOG_ERROR("Failed to allocate module block");
+            LOG_ERROR(instance, "Failed to allocate module block");
             break;
         }
         *output = module;
@@ -267,22 +267,22 @@ protracker_t* protracker_load(const buffer_t* buffer)
         return output;
     } while (0);
 
-    LOG_ERROR("Failed to load Protracker module.\n");
+    LOG_ERROR(instance, "Failed to load Protracker module.\n");
 
     protracker_destroy(&module);
 
     return NULL;
 }
 
-bool protracker_convert(buffer_t* buffer, const protracker_t* module, const char* options)
+bool protracker_convert(modpack_buffer_t* buffer, const protracker_t* module, const char* options)
 {
-    LOG_INFO("Exporting ProTracker module\n");
+    LOG_INFO(instance, "Exporting ProTracker module\n");
 
-    LOG_TRACE(" - Header\n");
+    LOG_TRACE(instance, " - Header\n");
 
     buffer_add(buffer, &(module->header), sizeof(protracker_header_t));
 
-    LOG_TRACE(" - Samples\n");
+    LOG_TRACE(instance, " - Samples\n");
 
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
@@ -295,12 +295,12 @@ bool protracker_convert(buffer_t* buffer, const protracker_t* module, const char
         buffer_add(buffer, &sample, sizeof(protracker_sample_t));
     }
 
-    LOG_TRACE(" - Song\n");
+    LOG_TRACE(instance, " - Song\n");
 
     buffer_add(buffer, &(module->song), sizeof(protracker_song_t));
     buffer_add(buffer, "M.K.", 4);
 
-    LOG_TRACE(" - Patterns (%lu)\n", module->num_patterns);
+    LOG_TRACE(instance, " - Patterns (%lu)\n", module->num_patterns);
 
     for (size_t i = 0; i < module->num_patterns; ++i)
     {
@@ -308,7 +308,7 @@ bool protracker_convert(buffer_t* buffer, const protracker_t* module, const char
         buffer_add(buffer, pattern, sizeof(protracker_pattern_t));
     }
 
-    LOG_TRACE(" - Sample Data\n");
+    LOG_TRACE(instance, " - Sample Data\n");
 
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
@@ -330,19 +330,19 @@ void protracker_create(protracker_t* module)
     memset(module, 0, sizeof(protracker_t));
 }
 
-void protracker_destroy(protracker_t* module)
+void protracker_destroy(modpack_t* instance, protracker_t* module)
 {
-    free(module->patterns);
+    instance->free(module->patterns);
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
-        free(module->sample_data[i]);
+        instance->free(module->sample_data[i]);
     }
 }
 
-void protracker_free(protracker_t* module)
+void protracker_free(modpack_t* instance, protracker_t* module)
 {
-    protracker_destroy(module);
-    free(module);
+    protracker_destroy(instance, module);
+    instance->free(module);
 }
 
 uint8_t protracker_get_sample(const protracker_channel_t* channel)
@@ -437,7 +437,7 @@ void protracker_remove_unused_patterns(protracker_t* module)
     size_t used_patterns = protracker_get_pattern_count(module);
     size_t total_patterns = module->num_patterns;
 
-    LOG_DEBUG("Removing unused patterns...\n");
+    LOG_DEBUG(instance, "Removing unused patterns...\n");
 
     for (size_t i = module->song.length; i < PT_NUM_POSITIONS; ++i)
     {
@@ -460,7 +460,7 @@ void protracker_remove_unused_patterns(protracker_t* module)
         size_t pattern_index = num_patterns;
         if (!used)
         {
-            LOG_TRACE(" #%lu - not used, removing...\n", i);
+            LOG_TRACE(instance, " #%lu - not used, removing...\n", i);
         }
         else
         {
@@ -489,7 +489,7 @@ void protracker_remove_unused_patterns(protracker_t* module)
 
 void protracker_remove_unused_samples(protracker_t* module)
 {
-    LOG_DEBUG("Removing unused samples...\n");
+    LOG_DEBUG(instance, "Removing unused samples...\n");
 
     bool used[PT_NUM_SAMPLES];
     size_t sample_count = protracker_get_used_samples(module, used);
@@ -501,9 +501,9 @@ void protracker_remove_unused_samples(protracker_t* module)
             continue;
         }
 
-        LOG_TRACE(" #%lu - not used, removing...\n", (i+1));
+        LOG_TRACE(instance, " #%lu - not used, removing...\n", (i+1));
 
-        free(module->sample_data[i]);
+        instance->free(module->sample_data[i]);
         module->sample_data[i] = NULL;
         module->sample_headers[i].length = 0;
         module->sample_headers[i].repeat_offset = 0;
@@ -513,7 +513,7 @@ void protracker_remove_unused_samples(protracker_t* module)
 
 void protracker_trim_samples(protracker_t* module)
 {
-    LOG_DEBUG("Trimming samples...\n");
+    LOG_DEBUG(instance, "Trimming samples...\n");
 
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
@@ -541,14 +541,14 @@ void protracker_trim_samples(protracker_t* module)
             continue;
         }
 
-        LOG_TRACE(" #%lu - %lu -> %lu bytes (%lu bytes saved)\n", (i + 1), sample->length * 2, sample_length * 2, (sample->length - sample_length) * 2);
+        LOG_TRACE(instance, " #%lu - %lu -> %lu bytes (%lu bytes saved)\n", (i + 1), sample->length * 2, sample_length * 2, (sample->length - sample_length) * 2);
         sample->length = sample_length;
     }
 }
 
 void protracker_clean_effects(protracker_t* module, const char* options)
 {
-    LOG_DEBUG("Cleaning effects...\n");
+    LOG_DEBUG(instance, "Cleaning effects...\n");
 
     bool clean_e8 = has_option(options, "clean:e8", false);
 
@@ -573,7 +573,7 @@ void protracker_clean_effects(protracker_t* module, const char* options)
                     {
                         if (has_break)
                         {
-                            LOG_TRACE(" (P:%lu,R:%lu,C:%lu) - Removed POS. JUMP/PAT. BREAK\n", i, j, k);
+                            LOG_TRACE(instance, " (P:%lu,R:%lu,C:%lu) - Removed POS. JUMP/PAT. BREAK\n", i, j, k);
                             memset(&effect, 0, sizeof(effect));
                         }
                         has_break = true;
@@ -588,7 +588,7 @@ void protracker_clean_effects(protracker_t* module, const char* options)
                             {
                                 if (clean_e8)
                                 {
-                                    LOG_TRACE(" (P:%lu,R:%lu,C:%lu) - Removed E8x\n", i, j, k);
+                                    LOG_TRACE(instance, " (P:%lu,R:%lu,C:%lu) - Removed E8x\n", i, j, k);
                                     memset(&effect, 0, sizeof(effect));
                                 }
                             }
@@ -622,7 +622,7 @@ void sample_replace_filter(protracker_channel_t* channel, uint8_t index, void* d
 
 void protracker_remove_identical_samples(protracker_t* module)
 {
-    LOG_DEBUG("Removing identical samples...\n");
+    LOG_DEBUG(instance, "Removing identical samples...\n");
 
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
@@ -653,7 +653,7 @@ void protracker_remove_identical_samples(protracker_t* module)
                 continue;
             }
 
-            LOG_TRACE(" #%lu equals #%lu, merging...\n", (i+1), (j+1));
+            LOG_TRACE(instance, " #%lu equals #%lu, merging...\n", (i+1), (j+1));
 
             sample_replace_data replace_data = {
                 (j+1), (i+1)
@@ -661,7 +661,7 @@ void protracker_remove_identical_samples(protracker_t* module)
 
             protracker_transform_notes(module, sample_replace_filter, &replace_data);
 
-            free(module->sample_data[j]);
+            instance->free(module->sample_data[j]);
             module->sample_data[j] = NULL;
             module->sample_headers[j].length = 0;
             module->sample_headers[j].repeat_offset = 0;
@@ -688,7 +688,7 @@ static void compact_sample_filter(protracker_channel_t* channel, uint8_t index, 
 
 void protracker_compact_sample_indexes(protracker_t* module)
 {
-    LOG_DEBUG("Compacting sample indexes...\n");
+    LOG_DEBUG(instance, "Compacting sample indexes...\n");
 
     bool used[PT_NUM_SAMPLES];
     size_t sample_count = protracker_get_used_samples(module, used);
@@ -715,7 +715,7 @@ void protracker_compact_sample_indexes(protracker_t* module)
 
             if (existing)
             {
-                LOG_TRACE(" #%lu - not used, compacting.\n", (i+1));
+                LOG_TRACE(instance, " #%lu - not used, compacting.\n", (i+1));
             }
         }
 
