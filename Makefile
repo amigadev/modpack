@@ -15,7 +15,7 @@ modpack: out/main.o out/protracker.o out/player61a.o out/log.o out/buffer.o out/
 out/%.o: src/%.c
 	$(CC) -c -o $@ $(CCFLAGS) $<
 
-out/readme.h: README.md
+out/readme.h: README.txt
 	cat $< | tr "\`" " " | xxd -i > $@
 
 SHARED_HEADERS=src/buffer.h src/log.h src/options.h
