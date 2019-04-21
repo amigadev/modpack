@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include <arpa/inet.h>
+#include <netinet/in.h>
 
 static uint16_t octaves[5][12] = {
     { 1712,1616,1525,1440,1357,1281,1209,1141,1077,1017, 961, 907 },    // 0

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdlib.h>
+#include <stdint.h>
 
 typedef struct buffer_t
 {
