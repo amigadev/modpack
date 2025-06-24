@@ -148,7 +148,7 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
 #define COMPRESSION_JUMP        (0x40)  // 8-bit jump
 #define COMPRESSION_JUMP_LONG   (0x80)  // 16-bit jump (requires COMPRESSION_JUMP)
 
-static uint16_t periods[] = {
+static const uint16_t periods[36] = {
     856,808,762,720,678,640,604,570,538,508,480,453,    // octave 1
     428,404,381,360,339,320,302,285,269,254,240,226,    // octave 2
     214,202,190,180,170,160,151,143,135,127,120,113     // octave 3
@@ -880,7 +880,8 @@ protracker_t* player61a_load(const buffer_t* buffer)
 
         // sample headers
 
-        p61a_sample_t sample_headers[header.sample_count];
+        p61a_sample_t* sample_headers;
+        sample_headers = calloc(header.sample_count, sizeof(p61a_sample_t));
         if (!(curr = read_sample_headers(sample_headers, header.sample_count, curr, max)))
         {
             break;
@@ -888,7 +889,8 @@ protracker_t* player61a_load(const buffer_t* buffer)
 
         // pattern offsets
 
-        p61a_pattern_offset_t pattern_offsets[header.pattern_count];
+        p61a_pattern_offset_t* pattern_offsets;
+        pattern_offsets = calloc(header.pattern_count, sizeof(p61a_pattern_offset_t));
         if (!(curr = read_pattern_offsets(pattern_offsets, header.pattern_count, curr, max)))
         {
             break;
@@ -996,6 +998,8 @@ protracker_t* player61a_load(const buffer_t* buffer)
         }
 
         free(patterns);
+        free(sample_headers);
+        free(pattern_offsets);
         protracker_t* out = malloc(sizeof(protracker_t));
         *out = module;
 

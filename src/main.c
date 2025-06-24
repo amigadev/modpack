@@ -4,7 +4,7 @@
 #include "options.h"
 #include "log.h"
 
-static const unsigned char help_text[] = {
+static const unsigned char help_text[3000] = {
 "Modpack - Optimize, compress and convert ProTracker/P61A modules\n"
 "================================================================\n"
 "Arguments are processed from left to right. This means you can write more\n"
