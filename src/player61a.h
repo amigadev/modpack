@@ -66,6 +66,7 @@ typedef struct
 
     p61a_header_t header;
     p61a_sample_t sample_headers[PT_NUM_SAMPLES];
+    uint8_t sample_map[PT_NUM_SAMPLES];
 
     p61a_song_t song;
 
