@@ -461,6 +461,28 @@ static bool to_protracker_channel(protracker_channel_t* out, const p61a_channel_
                 protracker_set_effect(out, &effect);
             }
             break;
+
+            case PT_CMD_CONTINUE_SLIDE:
+            case PT_CMD_CONTINUE_VIBRATO:
+            case PT_CMD_VOLUME_SLIDE:
+            {
+                if (effect.data.value & 0x80)
+                {
+                    effect.data.value = (uint8_t)((-effect.data.value) & 0x0f) << 4;
+                    protracker_set_effect(out, &effect);
+                }
+            }
+            break;
+
+            case PT_CMD_EXTENDED:
+            {
+                if (effect.data.ext.cmd == PT_ECMD_FILTER)
+                {
+                    effect.data.ext.value >>= 1;
+                    protracker_set_effect(out, &effect);
+                }
+            }
+            break;
         }
     }
 
@@ -537,13 +559,9 @@ static void player61a_destroy(player61a_t* module)
     buffer_release(&(module->samples));
 }
 
-#if 0
-
-static int8_t deltas[] = {
-    0,1,2,4,8,16,32,64,128,-64,-32,-16,-8,-4,-2,-1
+static const int8_t deltas[] = {
+    0,1,2,4,8,16,32,64,-128,-64,-32,-16,-8,-4,-2,-1
 };
-
-#endif
 
 static void write_song(buffer_t* buffer, const player61a_t* module, const char* options)
 {
@@ -743,10 +761,10 @@ static const uint8_t* read_pattern_offsets(p61a_pattern_offset_t* pattern_offset
     return curr;
 }
 
-static const uint8_t* read_song_positions(p61a_song_t* song, const uint8_t* curr, const uint8_t* max)
+static const uint8_t* read_song_positions(p61a_song_t* song, size_t pattern_count, const uint8_t* curr, const uint8_t* max)
 {
     LOG_TRACE("Song Positions:\n ");
-    for (size_t i = 0; i < PT_NUM_POSITIONS; ++i)
+    for (size_t i = 0; i <= PT_NUM_POSITIONS; ++i)
     {
         if ((max - curr) < sizeof(uint8_t))
         {
@@ -758,149 +776,201 @@ static const uint8_t* read_song_positions(p61a_song_t* song, const uint8_t* curr
         if (position == 0xff)
         {
             song->length = i;
+            LOG_TRACE("\n");
+            return curr;
+        }
+
+        if (i == PT_NUM_POSITIONS)
+        {
             break;
+        }
+
+        if (position >= pattern_count)
+        {
+            LOG_ERROR("Invalid pattern %u at song position %lu.\n", position, i);
+            return NULL;
         }
 
         LOG_TRACE(" %u", position);
 
         song->positions[i] = position;
     }
-    LOG_TRACE("\n");
 
-    return curr;
+    LOG_ERROR("Song positions not terminated.\n");
+    return NULL;
 }
 
-static size_t decompress_track(p61a_pattern_t* pattern, size_t channel_index, size_t offset, size_t maxrows, const uint8_t* track, bool deref, const uint8_t* base)
+static int read_entry(p61a_channel_t* out, const uint8_t** curr, const uint8_t* base, const uint8_t* max)
 {
-    LOG_TRACE("decompress_track(%lu, %lu%s)\n", offset, maxrows, deref ? ", deref" : "");
+    const uint8_t* src = *curr;
 
-    while(offset < PT_PATTERN_ROWS)
+    if (src < base || src >= max)
     {
-        uint8_t c0 = *track++, c1 = 0, c2 = 0;
-        p61a_channel_t out = { 0 };
+        return -2;
+    }
 
-        if ((c0 & CHANNEL_EMPTY) == CHANNEL_EMPTY)
+    memset(out, 0, sizeof(p61a_channel_t));
+    out->data[0] = src[0];
+
+    size_t length = get_channel_length(out);
+    if ((size_t)(max - src) < length + ((src[0] & CHANNEL_COMPRESSED) ? 1 : 0))
+    {
+        return -2;
+    }
+
+    memcpy(out->data, src, length);
+    out->data[0] &= ~CHANNEL_COMPRESSED;
+    src += length;
+
+    int info = -1;
+    if ((*curr)[0] & CHANNEL_COMPRESSED)
+    {
+        info = *src++;
+    }
+
+    *curr = src;
+    return info;
+}
+
+typedef struct
+{
+    const uint8_t* curr;
+    const uint8_t* jump;
+    size_t jump_left;
+    size_t repeat;
+    bool repeat_same;
+    p61a_channel_t last;
+} p61a_track_reader_t;
+
+static bool read_row(p61a_track_reader_t* reader, p61a_channel_t* out, const uint8_t* base, const uint8_t* max)
+{
+    if (reader->repeat)
+    {
+        --reader->repeat;
+
+        if (reader->repeat_same)
         {
-            LOG_TRACE(" %02lu %04x: %02x    ", offset, ((track-1)-base) & 0xffff, c0);
-            if (!(c0 & CHANNEL_COMPRESSED))
-            {
-                ++offset;
-            }
-        }
-        else if ((c0 & CHANNEL_NOTE_INSTRUMENT) == CHANNEL_NOTE_INSTRUMENT)
-        {
-            out.data[0] = c0;
-            out.data[1] = c1 = *track++;
-
-            LOG_TRACE(" %02lu %04x: %02x%02x  ", offset, ((track-2)-base) & 0xffff, c0, c1);
-
-            pattern->rows[offset++].channels[channel_index] = out;
-        }
-        else if ((c0 & CHANNEL_COMMAND) == CHANNEL_COMMAND)
-        {
-            out.data[0] = c0;
-            out.data[1] = c1 = *track++;
-
-            LOG_TRACE(" %02lu %04x: %02x%02x  ", offset, ((track-2)-base) & 0xffff, c0, c1);
-
-            pattern->rows[offset++].channels[channel_index] = out;
-        }
-        else
-        {
-            out.data[0] = c0;
-            out.data[1] = c1 = *track++;
-            out.data[2] = c2 = *track++;
-
-            LOG_TRACE(" %02lu %04x: %02x%02x%02x", offset, ((track-3)-base) & 0xffff, c0, c1, c2);
-
-            pattern->rows[offset++].channels[channel_index] = out;
-        }
-
-        protracker_channel_t ptc;
-
-        to_protracker_channel(&ptc, &out);
-
-        char buf[32];
-        protracker_channel_to_text(&ptc, buf, sizeof(buf));
-
-        LOG_TRACE(" %s", buf);
-
-        if (c0 & CHANNEL_COMPRESSED)
-        {
-            uint8_t d0 = *track++;
-            LOG_TRACE(" %02x", d0);
-
-            if (d0 & COMPRESSION_JUMP)
-            {
-                uint8_t rows = (d0 & COMPRESSION_DATA_BITS) + 1;
-                uint16_t dist = *track++;
-                LOG_TRACE("%02x", dist);
-                if (d0 & COMPRESSION_JUMP_LONG)
-                {
-                    uint8_t d2 = *track++;
-                    LOG_TRACE("%02x", d2);
-                    dist = (dist << 8)|d2;
-                }
-
-                LOG_TRACE(" (%s JUMP %u %04x)\n", (d0 & COMPRESSION_JUMP_LONG) ? "LONG" : "SHORT", rows, dist);
-
-                offset = decompress_track(pattern, channel_index, offset, rows, track - dist, true, base);
-            }
-            else if (d0 & COMPRESSION_REPEAT_ROWS)
-            {
-                uint8_t rows = (d0 & COMPRESSION_DATA_BITS);
-
-                LOG_TRACE(" (REPEAT %d)\n", rows);
-
-                for (size_t i = 0; i < rows; ++i)
-                {
-                    pattern->rows[offset++].channels[channel_index] = out;
-                }
-            }
-            else if ((d0 & COMPRESSION_CMD_BITS) == COMPRESSION_EMPTY_ROWS)
-            {
-                uint8_t rows = (d0 & COMPRESSION_DATA_BITS);
-
-                LOG_TRACE(" (EMPTY %d)\n", rows);
-
-                offset += rows;
-            }
+            *out = reader->last;
         }
         else
         {
-            LOG_TRACE("\n");
+            memset(out, 0, sizeof(p61a_channel_t));
+            out->data[0] = CHANNEL_EMPTY;
         }
+        return true;
+    }
 
-        if (maxrows > 0 && ((--maxrows) == 0))
+    int info;
+    if (reader->jump_left)
+    {
+        --reader->jump_left;
+        info = read_entry(out, &(reader->jump), base, max);
+    }
+    else
+    {
+        info = read_entry(out, &(reader->curr), base, max);
+
+        if (info >= 0 && (info & COMPRESSION_JUMP))
         {
-            break;
+            const uint8_t* src = reader->curr;
+            size_t bytes = (info & COMPRESSION_JUMP_LONG) ? 2 : 1;
+            if ((size_t)(max - src) < bytes)
+            {
+                LOG_ERROR("Premature end of pattern data.\n");
+                return false;
+            }
+
+            size_t dist = (bytes == 2) ? ((src[0] << 8) | src[1]) : src[0];
+            reader->curr += bytes;
+
+            if (dist > (size_t)(reader->curr - base))
+            {
+                LOG_ERROR("Invalid back-reference in pattern data.\n");
+                return false;
+            }
+
+            reader->jump = reader->curr - dist;
+            reader->jump_left = info & COMPRESSION_DATA_BITS;
+
+            info = read_entry(out, &(reader->jump), base, max);
+            if (info >= 0 && (info & COMPRESSION_JUMP))
+            {
+                LOG_ERROR("Nested back-reference in pattern data.\n");
+                return false;
+            }
         }
     }
 
-    LOG_TRACE(" - DONE (%lu)\n", offset);
+    if (info == -2)
+    {
+        LOG_ERROR("Premature end of pattern data.\n");
+        return false;
+    }
 
-    return offset;
+    if (info >= 0)
+    {
+        reader->repeat = info & COMPRESSION_DATA_BITS;
+        reader->repeat_same = (info & COMPRESSION_REPEAT_ROWS) != 0;
+    }
+
+    reader->last = *out;
+    return true;
 }
 
-static const uint8_t* read_patterns(p61a_pattern_t* patterns, p61a_pattern_offset_t* pattern_offsets, size_t pattern_count, const uint8_t* curr, const uint8_t* max)
+static uint8_t get_command(const p61a_channel_t* channel)
+{
+    uint8_t c0 = channel->data[0];
+
+    if ((c0 & CHANNEL_EMPTY) == CHANNEL_EMPTY || (c0 & CHANNEL_NOTE_INSTRUMENT) == CHANNEL_NOTE_INSTRUMENT)
+        return 0;
+
+    if ((c0 & CHANNEL_COMMAND) == CHANNEL_COMMAND)
+        return c0 & 0x0f;
+
+    return channel->data[1] & 0x0f;
+}
+
+static bool read_patterns(p61a_pattern_t* patterns, p61a_pattern_offset_t* pattern_offsets, size_t pattern_count, const uint8_t* curr, const uint8_t* max)
 {
     for (size_t i = 0; i < pattern_count; ++i)
     {
         p61a_pattern_t* pattern = &(patterns[i]);
         const p61a_pattern_offset_t* offsets = &(pattern_offsets[i]);
 
+        p61a_track_reader_t readers[PT_NUM_CHANNELS];
+        memset(readers, 0, sizeof(readers));
+
         for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
         {
-            size_t current_row = 0;
-            const uint8_t* track = curr + offsets->channels[j];
+            readers[j].curr = curr + offsets->channels[j];
+        }
 
-            LOG_TRACE("Pattern #%lu, track #%lu:\n", i,j);
+        for (size_t row = 0; row < PT_PATTERN_ROWS; ++row)
+        {
+            bool brk = false;
 
-            decompress_track(pattern, j, 0, 0, curr + offsets->channels[j], false, curr + offsets->channels[j]);
+            for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
+            {
+                p61a_channel_t* out = &(pattern->rows[row].channels[j]);
+
+                if (!read_row(&(readers[j]), out, curr, max))
+                {
+                    LOG_ERROR("Failed to decode pattern %lu, track %lu, row %lu.\n", i, j, row);
+                    return false;
+                }
+
+                uint8_t cmd = get_command(out);
+                brk = brk || cmd == PT_CMD_POS_JUMP || cmd == PT_CMD_PATTERN_BREAK;
+            }
+
+            if (brk)
+            {
+                break;
+            }
         }
     }
 
-    return curr;
+    return true;
 }
 
 protracker_t* player61a_load(const buffer_t* buffer)
@@ -917,19 +987,19 @@ protracker_t* player61a_load(const buffer_t* buffer)
     do
     {
         size_t size = buffer_count(buffer);
-        if (size < sizeof(p61a_header_t) + signature_length)
-        {
-            LOG_ERROR("Premature end of data before header.\n");
-            break;
-        }
-
         const uint8_t* raw = buffer_get(buffer, 0);
 
         // check for P61A (and skip it)
-        if (!memcmp(signature, raw, signature_length))
+        if (size >= signature_length && !memcmp(signature, raw, signature_length))
         {
             raw += signature_length;
             size -= signature_length;
+        }
+
+        if (size < sizeof(p61a_header_t))
+        {
+            LOG_ERROR("Premature end of data before header.\n");
+            break;
         }
 
         const uint8_t* curr = raw;
@@ -942,24 +1012,37 @@ protracker_t* player61a_load(const buffer_t* buffer)
         curr += sizeof(p61a_header_t);
 
         header.sample_offset = ntohs(header.sample_offset);
-        LOG_TRACE("Header:\n Sample Offset: %u\n Patterns:%u\n Sample count:%u\n", header.sample_offset, header.pattern_count, header.sample_count);
+        uint8_t sample_count = header.sample_count & 0x1f;
+        bool packed_samples = (header.sample_count & 0x40) != 0;
+        bool delta_samples = (header.sample_count & 0x80) != 0;
+        LOG_TRACE("Header:\n Sample Offset: %u\n Patterns:%u\n Sample count:%u%s%s\n", header.sample_offset, header.pattern_count, sample_count, packed_samples ? " (4-bit packed)" : "", delta_samples ? " (delta)" : "");
 
-        if (!header.pattern_count)
+        if (!header.pattern_count || header.pattern_count > PT_NUM_POSITIONS)
         {
             LOG_ERROR("Invalid pattern count in header. (%u)\n", header.pattern_count);
             break;
         }
 
-        if (header.sample_count > PT_NUM_SAMPLES)
+        if (header.sample_offset > size)
         {
-            LOG_ERROR("Invalid sample count in header. (%u > %u)\n", header.sample_count, PT_NUM_SAMPLES);
+            LOG_ERROR("Invalid sample offset in header. (%u)\n", header.sample_offset);
             break;
+        }
+
+        if (packed_samples)
+        {
+            if ((max - curr) < sizeof(uint32_t))
+            {
+                LOG_ERROR("Premature end of data before sample buffer size.\n");
+                break;
+            }
+            curr += sizeof(uint32_t);
         }
 
         // sample headers
 
-        p61a_sample_t sample_headers[header.sample_count];
-        if (!(curr = read_sample_headers(sample_headers, header.sample_count, curr, max)))
+        p61a_sample_t sample_headers[PT_NUM_SAMPLES];
+        if (!(curr = read_sample_headers(sample_headers, sample_count, curr, max)))
         {
             break;
         }
@@ -975,32 +1058,64 @@ protracker_t* player61a_load(const buffer_t* buffer)
         // song positions
 
         p61a_song_t song = { 0 };
-        if (!(curr = read_song_positions(&song, curr, max)))
+        if (!(curr = read_song_positions(&song, header.pattern_count, curr, max)))
         {
             break;
         }
 
         // patterns
 
-        p61a_pattern_t* patterns = malloc(sizeof(p61a_pattern_t) * header.pattern_count);
+        const uint8_t* pattern_end = raw + header.sample_offset;
+        if (pattern_end < curr)
+        {
+            LOG_ERROR("Invalid sample offset in header. (%u)\n", header.sample_offset);
+            break;
+        }
+
+        patterns = malloc(sizeof(p61a_pattern_t) * header.pattern_count);
         memset(patterns, 0, sizeof(p61a_pattern_t) * header.pattern_count);
-        if (!(curr = read_patterns(patterns, pattern_offsets, header.pattern_count, curr, max)))
+        for (size_t i = 0; i < header.pattern_count; ++i)
+        {
+            for (size_t j = 0; j < PT_PATTERN_ROWS; ++j)
+            {
+                for (size_t k = 0; k < PT_NUM_CHANNELS; ++k)
+                {
+                    patterns[i].rows[j].channels[k].data[0] = CHANNEL_EMPTY;
+                }
+            }
+        }
+
+        if (!read_patterns(patterns, pattern_offsets, header.pattern_count, curr, pattern_end))
         {
             break;
         }
 
         // PT: header
 
-        for (size_t i = 0; i < header.sample_count; ++i)
+        bool valid = true;
+        for (size_t i = 0; i < sample_count; ++i)
         {
             const p61a_sample_t* in = &(sample_headers[i]);
             protracker_sample_t* out = &(module.sample_headers[i]);
 
-            out->length = in->length;
+            uint16_t length = in->length;
+            if (length & 0x8000)
+            {
+                size_t source = (size_t)(0x10000 - length) - 1;
+                if (source >= i || (sample_headers[source].length & 0x8000))
+                {
+                    LOG_ERROR("Invalid shared sample reference in sample #%lu.\n", (i+1));
+                    valid = false;
+                    break;
+                }
+                length = sample_headers[source].length;
+            }
+
+            out->length = length;
             out->finetone = in->finetone & 0x0f;
             out->volume = in->volume;
 
-            if (in->repeat_offset == 0xffff)
+            if (in->repeat_offset == 0xffff || in->repeat_offset >= length)
             {
                 out->repeat_offset = 0;
                 out->repeat_length = 1;
@@ -1008,8 +1123,13 @@ protracker_t* player61a_load(const buffer_t* buffer)
             else
             {
                 out->repeat_offset = in->repeat_offset;
-                out->repeat_length = in->length - in->repeat_offset;
+                out->repeat_length = length - in->repeat_offset;
             }
+        }
+
+        if (!valid)
+        {
+            break;
         }
 
         // PT: Song
@@ -1057,20 +1177,64 @@ protracker_t* player61a_load(const buffer_t* buffer)
         // PT: Sample Data
 
         const uint8_t* samples = raw + header.sample_offset;
-        for (size_t i = 0; i < header.sample_count; ++i)
+        for (size_t i = 0; i < sample_count; ++i)
         {
             const p61a_sample_t* sample = &(sample_headers[i]);
+            size_t bytes = module.sample_headers[i].length * 2;
 
-            if (!sample->length)
+            if (!bytes)
             {
                 continue;
             }
 
-            size_t bytes = sample->length * 2;
             uint8_t* out = module.sample_data[i] = malloc(bytes);
-            memcpy(out, samples, bytes);
 
-            samples += bytes;
+            if (sample->length & 0x8000)
+            {
+                size_t source = (size_t)(0x10000 - sample->length) - 1;
+                memcpy(out, module.sample_data[source], bytes);
+                continue;
+            }
+
+            bool packed = packed_samples && (sample->finetone & 0x80);
+            size_t stored = packed ? bytes / 2 : bytes;
+            if ((size_t)(max - samples) < stored)
+            {
+                LOG_ERROR("Premature end of data in sample #%lu.\n", (i+1));
+                valid = false;
+                break;
+            }
+
+            if (packed)
+            {
+                uint8_t value = 0;
+                for (size_t j = 0; j < stored; ++j)
+                {
+                    value -= (uint8_t)deltas[samples[j] >> 4];
+                    out[j * 2] = value;
+                    value -= (uint8_t)deltas[samples[j] & 0x0f];
+                    out[j * 2 + 1] = value;
+                }
+            }
+            else
+            {
+                memcpy(out, samples, bytes);
+
+                if (delta_samples)
+                {
+                    for (size_t j = 1; j < bytes; ++j)
+                    {
+                        out[j] = out[j - 1] - out[j];
+                    }
+                }
+            }
+
+            samples += stored;
+        }
+
+        if (!valid)
+        {
+            break;
         }
 
         free(patterns);

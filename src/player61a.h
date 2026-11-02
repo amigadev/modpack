@@ -20,7 +20,7 @@ eie	bset	d4,d2
 typedef struct __attribute__((__packed__))
 {
     uint16_t length;            // length in words (when looping, subtract repeat offset for loop length)
-    uint8_t finetone;           // 0x0f = finetone, 0x20 = sample compression
+    uint8_t finetone;           // 0x0f = finetone, 0x80 = 4-bit packed sample data
     uint8_t volume;             // 0-64
     uint16_t repeat_offset;     // offset in words, 0xffff = no loop
 } p61a_sample_t;
@@ -29,7 +29,7 @@ typedef struct __attribute__((__packed__))
 {
     uint16_t sample_offset;
     uint8_t pattern_count;
-    uint8_t sample_count; // 0x1f = sample count (1-31), 0x20 = 4-bit compression 0x40 = delta compression
+    uint8_t sample_count; // 0x1f = sample count (0-31), 0x40 = 4-bit packed samples (buffer size follows), 0x80 = 8-bit delta samples
 } p61a_header_t;
 
 typedef struct __attribute__((__packed__))
