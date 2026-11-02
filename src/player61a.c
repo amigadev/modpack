@@ -148,8 +148,19 @@ static bool build_samples(player61a_t* output, const protracker_t* module, const
         {
             // not looping
 
+            const uint8_t* data = module->sample_data[i];
+
             length = input->length;
-            LOG_TRACE(" #%lu - %u bytes\n", (i+1), input->length * 2);
+            while ((length > 1) && !data[length * 2 - 2] && !data[length * 2 - 1])
+            {
+                --length;
+            }
+            LOG_TRACE(" #%lu - %u bytes\n", (i+1), length * 2);
+
+            if (length != input->length)
+            {
+                LOG_DEBUG("Sample #%lu trimmed (%u -> %u bytes).\n", (i+1), input->length * 2, length * 2);
+            }
 
             sample->length = length;
             sample->finetone = input->finetone & 0x0f;
