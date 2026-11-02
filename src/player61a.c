@@ -33,19 +33,30 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
     LOG_DEBUG("Building sample table:\n");
 
     bool usage[PT_NUM_SAMPLES];
-    size_t sample_count = protracker_get_used_samples(module, usage);
+    protracker_get_used_samples(module, usage);
 
+    size_t sample_count = 0;
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
         const protracker_sample_t* input = &(module->sample_headers[i]);
-        p61a_sample_t* sample = &(output->sample_headers[i]);
 
         if (!usage[i])
         {
+            output->sample_map[i] = 0;
             continue;
         }
 
-        uint16_t length;
+        p61a_sample_t* sample = &(output->sample_headers[sample_count++]);
+        output->sample_map[i] = (uint8_t)sample_count;
+
+        uint16_t length = 0;
+        bool looped = input->repeat_length > 1;
+        if (looped && input->length && (input->repeat_offset >= input->length))
+        {
+            LOG_WARN("Sample #%lu loop starts beyond sample end, loop removed.\n", (i+1));
+            looped = false;
+        }
+
         if (!input->length)
         {
             // empty
@@ -55,20 +66,25 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
             sample->volume = 0;
             sample->repeat_offset = 0xffff;
         }
-        else if (input->repeat_length > 1)
+        else if (looped)
         {
             // looping
 
-            length = input->repeat_offset + input->repeat_length;
+            uint32_t loop_end = (uint32_t)input->repeat_offset + input->repeat_length;
+            length = loop_end > input->length ? input->length : (uint16_t)loop_end;
             LOG_TRACE(" #%lu - %u bytes (looped)\n", (i+1), length * 2);
 
-            if (length != input->length)
+            if (loop_end > input->length)
+            {
+                LOG_WARN("Looped sample #%lu loop ends beyond sample end, loop shortened.\n", (i+1));
+            }
+            else if (length != input->length)
             {
                 LOG_WARN("Looped sample #%lu truncated (%u -> %u bytes).\n", (i+1), input->length * 2, length * 2);
             }
 
             sample->length = length;
-            sample->finetone = input->finetone;
+            sample->finetone = input->finetone & 0x0f;
             sample->volume = input->volume > 64 ? 64 : input->volume;
             sample->repeat_offset = input->repeat_offset;
         }
@@ -80,7 +96,7 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
             LOG_TRACE(" #%lu - %u bytes\n", (i+1), input->length * 2);
 
             sample->length = length;
-            sample->finetone = input->finetone;
+            sample->finetone = input->finetone & 0x0f;
             sample->volume = input->volume > 64 ? 64 : input->volume;
             sample->repeat_offset = 0xffff;
         }
@@ -214,9 +230,10 @@ static size_t get_channel_length(const p61a_channel_t* channel)
     return 3;
 }
 
-static size_t to_p61a_channel(p61a_channel_t* out, const protracker_channel_t* in, const protracker_pattern_row_t* row, size_t channel_index, uint32_t* usecode)
+static size_t to_p61a_channel(p61a_channel_t* out, const protracker_channel_t* in, const protracker_pattern_row_t* row, size_t channel_index, const uint8_t* sample_map, uint32_t* usecode)
 {
     uint8_t instrument = protracker_get_sample(in);
+    instrument = instrument ? sample_map[instrument - 1] : 0;
     uint16_t period = protracker_get_period(in);
     protracker_effect_t effect = protracker_get_effect(in);
 
@@ -406,14 +423,14 @@ static bool to_protracker_channel(protracker_channel_t* out, const p61a_channel_
     return true;
 }
 
-static size_t build_track(p61a_channel_t* channel, const protracker_pattern_t* pattern, size_t channel_index, uint32_t* usecode)
+static size_t build_track(p61a_channel_t* channel, const protracker_pattern_t* pattern, size_t channel_index, const uint8_t* sample_map, uint32_t* usecode)
 {
     for (size_t i = 0; i < PT_PATTERN_ROWS; ++i)
     {
         const protracker_pattern_row_t* row = &(pattern->rows[i]);
         const protracker_channel_t* in = &(row->channels[channel_index]);
 
-        to_p61a_channel(&(channel[i]), in, row, channel_index, usecode);
+        to_p61a_channel(&(channel[i]), in, row, channel_index, sample_map, usecode);
     }
     return PT_PATTERN_ROWS;
 }
@@ -436,7 +453,7 @@ static void build_patterns(player61a_t* output, const protracker_t* input, const
         {
             p61a_channel_t track[PT_PATTERN_ROWS];
 
-            size_t length = build_track(track, &(input->patterns[i]), j, usecode);
+            size_t length = build_track(track, &(input->patterns[i]), j, output->sample_map, usecode);
 
             size_t offset = buffer_count(&(output->patterns));
 
