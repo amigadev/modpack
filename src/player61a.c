@@ -380,13 +380,6 @@ static size_t to_p61a_channel(p61a_channel_t* out, const protracker_channel_t* i
         }
         break;
 
-        // TODO: these commands need processing
-        case PT_CMD_POS_JUMP:
-        case PT_CMD_PATTERN_BREAK:
-        {
-        }
-        break;
-
         case PT_CMD_SET_VOLUME:
         {
             effect.data.value = effect.data.value > 64 ? 64 : effect.data.value;
@@ -569,9 +562,32 @@ static size_t build_track(p61a_channel_t* channel, const protracker_pattern_t* p
     for (size_t i = 0; i < PT_PATTERN_ROWS; ++i)
     {
         const protracker_pattern_row_t* row = &(pattern->rows[i]);
-        const protracker_channel_t* in = &(row->channels[channel_index]);
+        protracker_channel_t in = row->channels[channel_index];
 
-        to_p61a_channel(&(channel[i]), in, row, channel_index, sample_map, usecode);
+        size_t break_channel = PT_NUM_CHANNELS;
+        for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
+        {
+            protracker_effect_t effect = protracker_get_effect(&(row->channels[j]));
+            if ((effect.cmd == PT_CMD_POS_JUMP) || ((effect.cmd == PT_CMD_PATTERN_BREAK) && (i < PT_PATTERN_ROWS - 1)))
+            {
+                break_channel = j;
+                break;
+            }
+        }
+
+        protracker_effect_t effect = protracker_get_effect(&in);
+        if (((effect.cmd == PT_CMD_POS_JUMP) || (effect.cmd == PT_CMD_PATTERN_BREAK)) && (channel_index != break_channel))
+        {
+            memset(&effect, 0, sizeof(effect));
+            protracker_set_effect(&in, &effect);
+        }
+
+        to_p61a_channel(&(channel[i]), &in, row, channel_index, sample_map, usecode);
+
+        if (break_channel < PT_NUM_CHANNELS)
+        {
+            return i + 1;
+        }
     }
     return PT_PATTERN_ROWS;
 }
