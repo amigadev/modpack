@@ -91,6 +91,7 @@ static bool build_samples(player61a_t* output, const protracker_t* module, const
     bool usage[PT_NUM_SAMPLES];
     protracker_get_used_samples(module, usage);
 
+    size_t sources[PT_NUM_SAMPLES];
     size_t sample_count = 0;
     for (size_t i = 0; i < PT_NUM_SAMPLES; ++i)
     {
@@ -102,6 +103,7 @@ static bool build_samples(player61a_t* output, const protracker_t* module, const
             continue;
         }
 
+        sources[sample_count] = i;
         p61a_sample_t* sample = &(output->sample_headers[sample_count++]);
         output->sample_map[i] = (uint8_t)sample_count;
 
@@ -171,6 +173,24 @@ static bool build_samples(player61a_t* output, const protracker_t* module, const
         if (sample->finetone)
         {
             *usecode |= 1; // mark finetones used in usecode
+        }
+
+        bool shared = false;
+        for (size_t k = 0; (length > 1) && (k + 1 < sample_count); ++k)
+        {
+            const p61a_sample_t* other = &(output->sample_headers[k]);
+            if ((other->length == length) && (((other->finetone & 0x80) != 0) == pack[i]) && !memcmp(module->sample_data[sources[k]], module->sample_data[i], length * 2))
+            {
+                LOG_DEBUG("Sample #%lu shares data with sample #%lu.\n", (i+1), (sources[k]+1));
+                sample->length = (uint16_t)(0xffff - k);
+                shared = true;
+                break;
+            }
+        }
+
+        if (shared)
+        {
+            continue;
         }
 
         output->sample_buffer_size += sample->length * 2;
