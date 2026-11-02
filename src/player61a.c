@@ -456,7 +456,7 @@ static size_t to_p61a_channel(p61a_channel_t* out, const protracker_channel_t* i
     }
 
     // note + instrument
-    if (note && instrument && !has_command)
+    if ((note || instrument) && !has_command)
     {
         // o1110nnn nnniiiii
         out->data[0] = CHANNEL_NOTE_INSTRUMENT | ((note >> 3) & 0x7);
