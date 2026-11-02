@@ -230,6 +230,21 @@ static size_t get_channel_length(const p61a_channel_t* channel)
     return 3;
 }
 
+static bool to_signed_slide(protracker_effect_t* effect)
+{
+    uint8_t up = effect->data.value >> 4;
+    uint8_t down = effect->data.value & 0x0f;
+
+    if (up)
+    {
+        effect->data.value = (uint8_t)(-up);
+        return true;
+    }
+
+    effect->data.value = down;
+    return down != 0;
+}
+
 static size_t to_p61a_channel(p61a_channel_t* out, const protracker_channel_t* in, const protracker_pattern_row_t* row, size_t channel_index, const uint8_t* sample_map, uint32_t* usecode)
 {
     uint8_t instrument = protracker_get_sample(in);
@@ -258,10 +273,39 @@ static size_t to_p61a_channel(p61a_channel_t* out, const protracker_channel_t* i
         }
         break;
 
+        case PT_CMD_CONTINUE_SLIDE:     // 500 -> 300, 5xy -> signed slide
+        {
+            if (!effect.data.value)
+            {
+                effect.cmd = PT_CMD_SLIDE_TO_NOTE;
+            }
+            else
+            {
+                has_command = to_signed_slide(&effect);
+            }
+        }
+        break;
+
+        case PT_CMD_CONTINUE_VIBRATO:   // 600 -> 400, 6xy -> signed slide
+        {
+            if (!effect.data.value)
+            {
+                effect.cmd = PT_CMD_VIBRATO;
+            }
+            else
+            {
+                has_command = to_signed_slide(&effect);
+            }
+        }
+        break;
+
+        case PT_CMD_VOLUME_SLIDE:       // Axy -> signed slide, A00 removed
+        {
+            has_command = to_signed_slide(&effect);
+        }
+        break;
+
         // TODO: these commands need processing
-        case PT_CMD_CONTINUE_SLIDE:
-        case PT_CMD_CONTINUE_VIBRATO:
-        case PT_CMD_VOLUME_SLIDE:
         case PT_CMD_POS_JUMP:
         case PT_CMD_PATTERN_BREAK:
         {
