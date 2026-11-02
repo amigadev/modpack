@@ -28,9 +28,65 @@
 
 static const char* signature = "P61A";
 
-static void build_samples(player61a_t* output, const protracker_t* module, const char* options, uint32_t* usecode)
+static const int8_t deltas[] = {
+    0,1,2,4,8,16,32,64,-128,-64,-32,-16,-8,-4,-2,-1
+};
+
+static void pack_sample(buffer_t* buffer, const uint8_t* data, size_t length)
+{
+    uint8_t* out = buffer_alloc(buffer, length / 2);
+    uint8_t value = 0;
+
+    for (size_t i = 0; i < length; ++i)
+    {
+        uint8_t index = 0;
+        int best = 256;
+
+        for (uint8_t j = 0; j < 16; ++j)
+        {
+            int diff = abs((int8_t)(value - (uint8_t)deltas[j]) - (int8_t)data[i]);
+            if (diff < best)
+            {
+                index = j;
+                best = diff;
+            }
+        }
+
+        value -= (uint8_t)deltas[index];
+
+        if (i & 1)
+        {
+            out[i / 2] |= index;
+        }
+        else
+        {
+            out[i / 2] = index << 4;
+        }
+    }
+}
+
+static void delta_sample(buffer_t* buffer, const uint8_t* data, size_t length)
+{
+    uint8_t* out = buffer_alloc(buffer, length);
+
+    out[0] = data[0];
+    for (size_t i = 1; i < length; ++i)
+    {
+        out[i] = data[i - 1] - data[i];
+    }
+}
+
+static bool build_samples(player61a_t* output, const protracker_t* module, const char* options, uint32_t* usecode)
 {
     LOG_DEBUG("Building sample table:\n");
+
+    bool pack[PT_NUM_SAMPLES];
+    if (!get_option_range(options, "4bit", pack, PT_NUM_SAMPLES))
+    {
+        return false;
+    }
+    bool delta = has_option(options, "delta", false);
+    bool packed_samples = false;
 
     bool usage[PT_NUM_SAMPLES];
     protracker_get_used_samples(module, usage);
@@ -106,11 +162,25 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
             *usecode |= 1; // mark finetones used in usecode
         }
 
-        // TODO: compression / delta encoding
+        output->sample_buffer_size += sample->length * 2;
 
         if (input->length > 0)
         {
-            buffer_add(&(output->samples), module->sample_data[i], length * 2);
+            if (pack[i] && length > 1)
+            {
+                LOG_TRACE(" #%lu - 4-bit packed\n", (i+1));
+                sample->finetone |= 0x80;
+                packed_samples = true;
+                pack_sample(&(output->samples), module->sample_data[i], length * 2);
+            }
+            else if (delta)
+            {
+                delta_sample(&(output->samples), module->sample_data[i], length * 2);
+            }
+            else
+            {
+                buffer_add(&(output->samples), module->sample_data[i], length * 2);
+            }
         }
         else
         {
@@ -121,7 +191,8 @@ static void build_samples(player61a_t* output, const protracker_t* module, const
 
     LOG_DEBUG(" %lu samples used.\n", sample_count);
 
-    output->header.sample_count = (uint8_t)sample_count;
+    output->header.sample_count = (uint8_t)sample_count | (packed_samples ? 0x40 : 0) | (delta ? 0x80 : 0);
+    return true;
 }
 
 /*
@@ -202,7 +273,11 @@ static size_t get_sample_offset(const player61a_t* module)
     size_t curr = 0;
 
     curr += sizeof(p61a_header_t);   // header
-    curr += sizeof(p61a_sample_t) * module->header.sample_count; // sample headers
+    if (module->header.sample_count & 0x40)
+    {
+        curr += sizeof(uint32_t); // sample buffer size
+    }
+    curr += sizeof(p61a_sample_t) * (module->header.sample_count & 0x1f); // sample headers
     curr += sizeof(p61a_pattern_offset_t) * module->header.pattern_count; // pattern offsets
     curr += module->song.length+1; // song positions (+0xff)
 
@@ -559,10 +634,6 @@ static void player61a_destroy(player61a_t* module)
     buffer_release(&(module->samples));
 }
 
-static const int8_t deltas[] = {
-    0,1,2,4,8,16,32,64,-128,-64,-32,-16,-8,-4,-2,-1
-};
-
 static void write_song(buffer_t* buffer, const player61a_t* module, const char* options)
 {
     if (has_option(options, "sign", false))
@@ -583,9 +654,15 @@ static void write_song(buffer_t* buffer, const player61a_t* module, const char* 
         buffer_add(buffer, &header, sizeof(header));
     }
 
+    if (module->header.sample_count & 0x40)
+    {
+        uint32_t size = htonl(module->sample_buffer_size);
+        buffer_add(buffer, &size, sizeof(size));
+    }
+
     // sample headers
 
-    for (size_t i = 0; i < module->header.sample_count; ++i)
+    for (size_t i = 0; i < (module->header.sample_count & 0x1f); ++i)
     {
         const p61a_sample_t* in = &(module->sample_headers[i]);
         p61a_sample_t sample;
@@ -666,8 +743,7 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
     player61a_create(&temp);
     uint32_t usecode = 0;
 
-    build_samples(&temp, module, options, &usecode);
-    if (!build_patterns(&temp, module, options, &usecode))
+    if (!build_samples(&temp, module, options, &usecode) || !build_patterns(&temp, module, options, &usecode))
     {
         player61a_destroy(&temp);
         return false;
