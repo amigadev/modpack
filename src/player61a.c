@@ -576,9 +576,175 @@ static size_t build_track(p61a_channel_t* channel, const protracker_pattern_t* p
     return PT_PATTERN_ROWS;
 }
 
+typedef struct
+{
+    uint8_t data[P61A_CHANNEL_BYTES + 1];
+    size_t length;
+} p61a_entry_t;
+
+static size_t build_entries(p61a_entry_t* entries, const p61a_channel_t* track, size_t length, bool compress)
+{
+    size_t count = 0;
+    const p61a_channel_t* last = NULL;
+
+    for (size_t i = 0; i < length; ++i)
+    {
+        const p61a_channel_t* channel = &(track[i]);
+
+        if (compress && last)
+        {
+            p61a_entry_t* entry = &(entries[count - 1]);
+            bool empty = channel->data[0] == CHANNEL_EMPTY;
+            bool same = !memcmp(channel->data, last->data, P61A_CHANNEL_BYTES);
+
+            if (!(entry->data[0] & CHANNEL_COMPRESSED))
+            {
+                if (empty || same)
+                {
+                    entry->data[0] |= CHANNEL_COMPRESSED;
+                    entry->data[entry->length++] = (empty ? COMPRESSION_EMPTY_ROWS : COMPRESSION_REPEAT_ROWS) | 1;
+                    continue;
+                }
+            }
+            else
+            {
+                uint8_t* compression = &(entry->data[entry->length - 1]);
+                if ((empty && ((*compression & COMPRESSION_CMD_BITS) == COMPRESSION_EMPTY_ROWS)) ||
+                    (same && ((*compression & COMPRESSION_CMD_BITS) == COMPRESSION_REPEAT_ROWS)))
+                {
+                    ++(*compression);
+                    continue;
+                }
+            }
+        }
+
+        p61a_entry_t* entry = &(entries[count++]);
+        entry->length = get_channel_length(channel);
+        memcpy(entry->data, channel->data, entry->length);
+        last = channel;
+    }
+
+    return count;
+}
+
+static size_t get_entry_length(const uint8_t* data)
+{
+    size_t length = get_channel_length((const p61a_channel_t*)data);
+
+    if (data[0] & CHANNEL_COMPRESSED)
+    {
+        uint8_t compression = data[length++];
+
+        if (((data[0] & CHANNEL_EMPTY) == CHANNEL_EMPTY) && (compression & COMPRESSION_JUMP))
+        {
+            length += (compression & COMPRESSION_JUMP_LONG) ? 2 : 1;
+        }
+    }
+
+    return length;
+}
+
+static bool is_same_entry(const uint8_t* data, const p61a_entry_t* entry)
+{
+    return (get_entry_length(data) == entry->length) && !memcmp(data, entry->data, entry->length);
+}
+
+static size_t find_jump(const buffer_t* buffer, const p61a_entry_t* entries, size_t index, size_t end, size_t* target)
+{
+    size_t size = buffer_count(buffer);
+    if (!size)
+    {
+        return 0;
+    }
+
+    const uint8_t* data = buffer_get(buffer, 0);
+    size_t best_count = 0;
+    ptrdiff_t best_gain = 0;
+
+    size_t start = 0;
+    while (start < size)
+    {
+        size_t next = start + get_entry_length(data + start);
+
+        if (!is_same_entry(data + start, &(entries[index])))
+        {
+            start = next;
+            continue;
+        }
+
+        if ((index + 1 >= end) || (next >= size))
+        {
+            break;
+        }
+
+        size_t curr = next;
+        size_t i = index + 1;
+        size_t count = 0;
+        do
+        {
+            bool same = is_same_entry(data + curr, &(entries[i]));
+            curr += get_entry_length(data + curr);
+
+            if (!same)
+            {
+                break;
+            }
+
+            ++i;
+            ++count;
+        }
+        while ((curr < size) && (i < end));
+
+        if (count)
+        {
+            ptrdiff_t gain = (ptrdiff_t)(curr - start) - 3;
+            if (size - start >= 256)
+            {
+                --gain;
+            }
+
+            if ((gain > best_gain) && (size + 4 - start <= 0xffff))
+            {
+                best_gain = gain;
+                best_count = count + 1;
+                *target = start;
+            }
+        }
+
+        start = next;
+    }
+
+    return best_count;
+}
+
+static void write_jump(buffer_t* buffer, size_t target, size_t count)
+{
+    uint8_t data[4];
+    size_t length = 0;
+    size_t distance = buffer_count(buffer) + 3 - target;
+
+    data[length++] = CHANNEL_EMPTY | CHANNEL_COMPRESSED;
+    if (distance < 256)
+    {
+        data[length++] = COMPRESSION_JUMP | (uint8_t)(count - 1);
+        data[length++] = (uint8_t)distance;
+    }
+    else
+    {
+        ++distance;
+        data[length++] = COMPRESSION_JUMP | COMPRESSION_JUMP_LONG | (uint8_t)(count - 1);
+        data[length++] = (uint8_t)(distance >> 8);
+        data[length++] = (uint8_t)distance;
+    }
+
+    buffer_add(buffer, data, length);
+}
+
 static bool build_patterns(player61a_t* output, const protracker_t* input, const char* options, uint32_t* usecode)
 {
     LOG_DEBUG("Converting patterns...\n");
+
+    bool compress = has_option(options, "compress_patterns", true);
 
     output->header.pattern_count = input->num_patterns;
 
@@ -588,6 +754,11 @@ static bool build_patterns(player61a_t* output, const protracker_t* input, const
     output->pattern_offsets = malloc(input->num_patterns * sizeof(p61a_pattern_offset_t));
     memset(output->pattern_offsets, 0, input->num_patterns * sizeof(p61a_pattern_offset_t));
 
+    size_t track_count = input->num_patterns * PT_NUM_CHANNELS;
+    p61a_entry_t* entries = malloc(track_count * PT_PATTERN_ROWS * sizeof(p61a_entry_t));
+    size_t* tracks = malloc((track_count + 1) * sizeof(size_t));
+    size_t entry_count = 0;
+
     for (size_t j = 0; j < PT_NUM_CHANNELS; ++j)
     {
         for (size_t i = 0; i < input->num_patterns; ++i)
@@ -596,26 +767,53 @@ static bool build_patterns(player61a_t* output, const protracker_t* input, const
 
             size_t length = build_track(track, &(input->patterns[i]), j, output->sample_map, usecode);
 
-            size_t offset = buffer_count(&(output->patterns));
-            if (offset > 0xffff)
+            tracks[j * input->num_patterns + i] = entry_count;
+            entry_count += build_entries(&(entries[entry_count]), track, length, compress);
+        }
+    }
+    tracks[track_count] = entry_count;
+
+    bool success = true;
+    for (size_t k = 0; k < track_count; ++k)
+    {
+        size_t i = k % input->num_patterns;
+        size_t j = k / input->num_patterns;
+
+        size_t offset = buffer_count(&(output->patterns));
+        if (offset > 0xffff)
+        {
+            LOG_ERROR("Pattern data too large, track offsets must fit in 16 bits (pattern %lu, channel %lu).\n", i, j);
+            success = false;
+            break;
+        }
+
+        output->pattern_offsets[i].channels[j] = offset;
+
+        size_t index = tracks[k];
+        while (index < tracks[k + 1])
+        {
+            size_t target;
+            size_t count = compress ? find_jump(&(output->patterns), entries, index, tracks[k + 1], &target) : 0;
+
+            if (count)
             {
-                LOG_ERROR("Pattern data too large, track offsets must fit in 16 bits (pattern %lu, channel %lu).\n", i, j);
-                return false;
+                write_jump(&(output->patterns), target, count);
+                index += count;
             }
-
-            output->pattern_offsets[i].channels[j] = offset;
-
-            for (size_t k = 0; k < length; ++k)
+            else
             {
-                const p61a_channel_t* channel = &(track[k]);
-                buffer_add(&(output->patterns), channel, get_channel_length(channel));
+                buffer_add(&(output->patterns), entries[index].data, entries[index].length);
+                ++index;
             }
-
-//            LOG_TRACE("CH %lu,%lu: %lu\n", i, j, buffer_count(&(output->patterns)) - offset);
         }
     }
 
-    return true;
+    LOG_DEBUG(" %lu bytes of pattern data.\n", buffer_count(&(output->patterns)));
+
+    free(tracks);
+    free(entries);
+
+    return success;
 }
 
 static void player61a_create(player61a_t* module)
