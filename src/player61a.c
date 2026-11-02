@@ -479,7 +479,7 @@ static size_t build_track(p61a_channel_t* channel, const protracker_pattern_t* p
     return PT_PATTERN_ROWS;
 }
 
-static void build_patterns(player61a_t* output, const protracker_t* input, const char* options, uint32_t* usecode)
+static bool build_patterns(player61a_t* output, const protracker_t* input, const char* options, uint32_t* usecode)
 {
     LOG_DEBUG("Converting patterns...\n");
 
@@ -500,6 +500,11 @@ static void build_patterns(player61a_t* output, const protracker_t* input, const
             size_t length = build_track(track, &(input->patterns[i]), j, output->sample_map, usecode);
 
             size_t offset = buffer_count(&(output->patterns));
+            if (offset > 0xffff)
+            {
+                LOG_ERROR("Pattern data too large, track offsets must fit in 16 bits (pattern %lu, channel %lu).\n", i, j);
+                return false;
+            }
 
             output->pattern_offsets[i].channels[j] = offset;
 
@@ -512,6 +517,8 @@ static void build_patterns(player61a_t* output, const protracker_t* input, const
 //            LOG_TRACE("CH %lu,%lu: %lu\n", i, j, buffer_count(&(output->patterns)) - offset);
         }
     }
+
+    return true;
 }
 
 static void player61a_create(player61a_t* module)
@@ -642,7 +649,18 @@ bool player61a_convert(buffer_t* buffer, const protracker_t* module, const char*
     uint32_t usecode = 0;
 
     build_samples(&temp, module, options, &usecode);
-    build_patterns(&temp, module, options, &usecode);
+    if (!build_patterns(&temp, module, options, &usecode))
+    {
+        player61a_destroy(&temp);
+        return false;
+    }
+
+    if (get_sample_offset(&temp) > 0xffff)
+    {
+        LOG_ERROR("Song data too large, sample offset must fit in 16 bits (%lu bytes).\n", get_sample_offset(&temp));
+        player61a_destroy(&temp);
+        return false;
+    }
 
     LOG_TRACE("usecode: %08x\n", usecode);
 
