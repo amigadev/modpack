@@ -7,8 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
+#include "endianness.h"
 
 static uint16_t octaves[5][12] = {
     { 1712,1616,1525,1440,1357,1281,1209,1141,1077,1017, 961, 907 },    // 0
@@ -18,8 +17,10 @@ static uint16_t octaves[5][12] = {
     {  107, 101,  95,  90,  85,  80,  76,  71,  67,  64,  60,  57 }     // 4
 };
 
-static char* notes[] = {
-    "C-","C#","D-","D#","E-","F-","F#","G-","G#","A-","A#","B-"
+static char* notes[12][3] = {
+    {"C-"},{"C#"},{"D-"},{"D#"},
+    {"E-"},{"F-"},{"F#"},{"G-"},
+    {"G#"},{"A-"},{"A#"},{"B-"}
 };
 
 void protracker_channel_to_text(const protracker_channel_t* channel, char* out, size_t buflen)
@@ -36,7 +37,7 @@ void protracker_channel_to_text(const protracker_channel_t* channel, char* out, 
             {
                 if (octaves[i][j] == period)
                 {
-                    snprintf(out, buflen, "%s%ld%02X%1X%1X%1X", notes[j], i, sample, effect.cmd, effect.data.ext.cmd, effect.data.ext.value);
+                    snprintf(out, buflen, "%s%ld%02X%1X%1X%1X", notes[j][0], i, sample, effect.cmd, effect.data.ext.cmd, effect.data.ext.value);
                     return;
                 }
             }
@@ -54,9 +55,9 @@ static void process_sample_header(protracker_sample_t* sample, const uint8_t* in
 {
     memcpy(sample, in, sizeof(protracker_sample_t));
 
-    sample->length = ntohs(sample->length);
-    sample->repeat_offset = ntohs(sample->repeat_offset);
-    sample->repeat_length = ntohs(sample->repeat_length);
+    sample->length = end_be16toh(sample->length);
+    sample->repeat_offset = end_be16toh(sample->repeat_offset);
+    sample->repeat_length = end_be16toh(sample->repeat_length);
 
     char sample_name[sizeof(sample->name)+1];
     memset(sample_name, 0, sizeof(sample_name));
@@ -190,7 +191,9 @@ protracker_t* protracker_load(const buffer_t* buffer)
             break;
         }
 
-        if (memcmp("M.K.", curr, 4) && memcmp("M!K!", curr, 4) && memcmp("FLT4", curr, 4) && memcmp("4CHN", curr, 4))
+        if (memcmp("M.K.", curr, 4) && memcmp("M!K!", curr, 4)
+        && memcmp("EXO4", curr, 4) && memcmp("M&K!", curr, 4)
+        && memcmp("FLT4", curr, 4) && memcmp("4CHN", curr, 4))
         {
             LOG_ERROR("Could not find magic word, is this a ProTracker module?\n");
             break;
@@ -289,9 +292,9 @@ bool protracker_convert(buffer_t* buffer, const protracker_t* module, const char
     {
         protracker_sample_t sample = module->sample_headers[i];
 
-        sample.length = htons(sample.length);
-        sample.repeat_offset = htons(sample.repeat_offset);
-        sample.repeat_length = htons(sample.repeat_length);
+        sample.length = end_htobe16(sample.length);
+        sample.repeat_offset = end_htobe16(sample.repeat_offset);
+        sample.repeat_length = end_htobe16(sample.repeat_length);
 
         buffer_add(buffer, &sample, sizeof(protracker_sample_t));
     }
